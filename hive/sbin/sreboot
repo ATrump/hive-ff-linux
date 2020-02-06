@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+
+
+WAKEALARM_TIMEOUT=30 #default value
+
+if [[ $1 == "-h" || $1 == "--help" ]]; then
+	. colors
+	echo -e "Reboots or shutdowns the system using sysrq"
+	echo -e "Usage:"
+	echo -e "  ${YELLOW}sreboot${NOCOLOR} - just reboots"
+	echo -e "  ${YELLOW}sreboot shutdown${NOCOLOR} - shutdowns"
+	echo -e "  ${YELLOW}sreboot wakealarm [timeout]${NOCOLOR} - shutdowns and sets wake alarm in BIOS to [timeout] (default $WAKEALARM_TIMEOUT seconds)"
+	echo -e "  ${YELLOW}sreboot -h|--help${NOCOLOR} - shows this message"
+	exit 0
+fi
+
+if [[ $1 == "wakealarm" && ! -e /sys/class/rtc/rtc0/wakealarm ]]; then
+	message warn "wakealarm is not supported by this system"
+	exit 1
+fi
+
+#Do not try to stop miner here. Sometimes it hangs and prevents rig from rebooting
+#screen -S agent -X quit
+#miner stop
+
+#unRaw      (take control of keyboard back from X),
+# tErminate (send SIGTERM to all processes),
+# kIll      (send SIGKILL to all processes),
+#  Sync     (flush data to disk),
+#  Unmount  (remount all filesystems read-only),
+#reBoot.
+#‘o’ – Shutdown the system immediately.
+#‘t’ – Output a list of current tasks and their information to the console.
+
+#Enables sysrq
+echo 1 > /proc/sys/kernel/sysrq
+#sync
+echo s > /proc/sysrq-trigger
+
+#mount -o remount,ro /hive-config
+#umount /hive-config
+echo u > /proc/sysrq-trigger
+
+if [[ $1 == "shutdown" ]]; then
+	echo "Shutting down"
+	echo o > /proc/sysrq-trigger
+elif [[ $1 == "wakealarm" ]]; then
+	[[ ! -z $2 ]] && WAKEALARM_TIMEOUT=$2
+	echo "Shutting down, setting wakealarm to $WAKEALARM_TIMEOUT seconds"
+	echo 0 > /sys/class/rtc/rtc0/wakealarm
+	echo +$WAKEALARM_TIMEOUT > /sys/class/rtc/rtc0/wakealarm
+	echo o > /proc/sysrq-trigger
+else
+	echo "Rebooting"
+	echo b > /proc/sysrq-trigger
+fi
+
+# just in case sysrq does not work
+watchdogs=("watchdog-opendev" "hl340" "watchdoginua" "watchdog-octofan" "srrv2" "WatchDogUtility/src/utility.py")
+for wd in "${watchdogs[@]}"; do
+	pkill -9 -f $wd #&& echo "$wd stopped"
+done
+
+reboot

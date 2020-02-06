@@ -1,0 +1,168 @@
+2013-08-14: 2.0.0 (507f7a8)
+- Initial version
+
+2013-08-23: 2.0.1 (4b2c2d2)
+- Avoid race condition between disconnect probe thread and disconnect function
+- Use exit code 1 for keyboard interrupt
+
+2013-08-28: 2.0.2 (2251328)
+- Add edge counters to Industrial Digital In 4, IO-4 and IO-16 Bricklet
+- Make averaging length configurable for Analog In Bricklet
+
+2013-09-11: 2.0.3 (405931f)
+- Fix signature of edge count functions in IO-16 Bricklet API
+- Add listen mode for handling incoming commands over a TCP/IP connection
+
+2013-11-27: 2.0.4 (a97b7db)
+- Add support for Distance US, Dual Button, Hall Effect, LED Strip, Line,
+  Moisture, Motion Detector, Multi Touch, Piezo Speaker, Remote Switch,
+  Rotary Encoder, Segment Display 4x7, Sound Intensity and Tilt Bricklet
+- Accept int values also in hexadecimal, octal and binary notation
+- Fix Python 3 string handling for listen command
+- Avoid printing '\0' in enumerate-disconnect callback
+
+2013-12-19: 2.0.5 (9334f91)
+- Add get/set-clock-frequency function to LED Strip Bricklet API
+- Fix mixup of get/set-date-time-callback-period and
+  get/set-motion-callback-period in GPS Bricklet API
+- Support addressing types of Intertechno and ELRO Home Easy devices in
+  Remote Switch Bricklet API
+
+2014-04-08: 2.1.0 (9124f8e)
+- Add authentication support to IPConnection and Master Brick API
+
+2014-07-03: 2.1.1 (cdb00f1)
+- Add support for WS2811 and WS2812 to LED Strip Bricklet API
+
+2014-08-11: 2.1.2 (a87f5bc)
+- Add support for Color, NFC/RFID and Solid State Relay Bricklet
+
+2014-12-10: 2.1.3 (2718ddc)
+- (no changes)
+
+2014-12-10: 2.1.4 (27725d5)
+- Add support for RED Brick
+
+2015-07-28: 2.1.5 (725ccd3)
+- Fix packing of Unicode chars
+- Add functions for all Bricks to turn status LEDs on and off
+- Avoid possible connection state race condition on connect
+- Add symbolic output for callbacks, escaped input and output of values and
+  array ellipsis
+- Add support for IMU Brick 2.0, Accelerometer, Ambient Light 2.0,
+  Analog In 2.0, Analog Out 2.0, Dust Detector, Industrial Analog Out,
+  Industrial Dual Analog In, Laser Range Finder, Load Cell and RS232 Bricklet
+
+2015-11-17: 2.1.6 (158f00f)
+- Add missing constant for 19200 baud to RS232 Bricklet API
+- Add error callback to RS232 Bricklet API
+- Add set-break-condition function to RS232 Bricklet API
+- Add unlimited illuminance range constant to Ambient Light Bricklet 2.0 API
+- Break API to fix threshold min/max type mismatch in Ambient Light, Analog In
+  (2.0), Distance IR/US, Humidity, Linear Poti and Voltage Bricklet API
+- Break API to fix bool return type mismatch in Servo Brick
+  (is-position-reached-callback-enabled and is-velocity-reached-callback-enabled
+  functions), Accelerometer Bricklet (is-led-on function) and Load Cell Bricklet
+  (is-led-on function) API
+
+2016-01-06: 2.1.7 (3ade121)
+- Add support for CO2, OLED 64x48 and 128x64, Thermocouple and UV Light Bricklet
+
+2016-02-09: 2.1.8 (5552d2c)
+- Add support for Real-Time Clock Bricklet
+- Break GPS Bricklet API to fix types of altitude and geoidal separation values
+  (get-altitude function and altitude callback)
+
+2016-06-29: 2.1.9 (9db7daa)
+- Add support for WIFI Extension 2.0 to Master Brick API
+- Add support for CAN Bricklet and RGB LED Bricklet
+- Add datetime and alarm callbacks to Real-Time Clock Bricklet API
+- Fix array ellipsis for non-char options
+
+2016-09-08: 2.1.10 (2863e14)
+- Add support for RGBW LEDs, channel mapping and SK6812RGBW (NeoPixel RGBW),
+  LPD8806 and ADA102 (DotStar) chip types to LED Strip Bricklet API
+
+2017-01-25: 2.1.11 (7aeee37)
+- Add support for WIFI Extension 2.0 Mesh mode to Master Brick API
+- Add get/set-status-led-config functions to Motion Detector Bricklet API
+- Add sensor and fusion mode configuration functions to IMU Brick 2.0 API
+
+2017-04-21: 2.1.12 (044bd9b)
+- Add support for Silent Stepper Brick
+- Add get/set-configuration functions to Laser Range Finder Bricklet API to
+  support Bricklets with LIDAR-Lite sensor hardware version 3
+- Add get-send-timeout-count function to all Brick APIs
+- Break API to fix symbol ambiguity by adding the group name as prefix
+
+2017-05-11: 2.1.13 (3960b4a)
+- Add support for GPS Bricklet 2.0
+
+2017-07-26: 2.1.14 (fb903dc)
+- Add support for RS485 Bricklet
+- Add SPITFP configuration and diagnostics functions to all Brick APIs to
+  configure and debug the communication between Bricks and Co-MCU Bricklets
+- Remove unused get-current-consumption function from Silent Stepper Brick API
+- Increase minimum Python version to 2.6
+
+2017-11-20: 2.1.15 (f235e3f)
+- Add support for DMX, Humidity 2.0, Motorized Linear Poti, RGB LED Button,
+  RGB LED Matrix and Thermal Imaging Bricklet
+- Add get/set-sbas-config functions to GPS Bricklet 2.0 API
+
+2018-02-28: 2.1.16 (da741b9)
+- Add support for Analog In 3.0, Remote Switch 2.0, Motion Detector 2.0, NFC,
+  Rotary Encoder 2.0, Solid State 2.0, Temperature IR 2.0 and Outdoor Weather
+  Bricklet
+- Add general streaming support
+
+2018-06-08: 2.1.17 (8fb62e4)
+- Add support for CAN 2.0, Industrial Counter, Industrial Digital In 4 2.0,
+  Industrial Dual Relay, Industrial Quad Relay 2.0, IO-4 2.0, LED Strip 2.0,
+  Load Cell 2.0, Particulate Matter, PTC 2.0, Real-Time Clock 2.0, RS232 2.0,
+  Sound Pressure Level, Thermocouple 2.0 and Voltage/Current 2.0 Bricklet
+- Add get/set-maximum-timeout functions to NFC Bricklet API
+- Add (is-)sensor-connected function and callback to PTC Bricklet API
+- Break Humidity 2.0, Rotary Encoder 2.0 and Temperature IR 2.0 Bricklet API to
+  fix types for callback threshold min/max configuration
+
+2018-09-28: 2.1.18 (f7c65f7)
+- Add support for Air Quality, Analog Out 3.0, Barometer 2.0, Distance IR 2.0,
+  Dual Button 2.0, Industrial Analog Out 2.0, Industrial Digital Out 4 2.0,
+  Industrial Dual 0-20mA 2.0, Industrial Dual Analog In 2.0, IO-16 2.0, Isolator,
+  LCD 128x64, OLED 128x64 2.0, One Wire, Temperature 2.0 and UV Light 2.0 Bricklet
+
+2018-10-05: 2.1.19 (e3c6f36)
+- Break API to fix moving-average-length type in Distance IR Bricklet 2.0 API
+
+2018-11-28: 2.1.20 (0e3b130)
+- Add get/set-samples-per-second functions to Humidity Bricklet 2.0 API
+- Add button, slider, graph and tab functions to LCD 128x64 Bricklet API
+
+2019-01-29: 2.1.21 (2617875)
+- Check for Python 2.6 instead of 2.5 to match Python API bindings requirements
+- Add support for Accelerometer 2.0 and Ambient Light 3.0 Bricklet
+
+2019-05-21: 2.1.22 (a3d0573)
+- Add support for CO2 2.0, E-Paper 296x128, Hall Effect 2.0, Joystick 2.0,
+  Laser Range Finder 2.0, Linear Poti 2.0, Piezo Speaker 2.0, RGB LED 2.0 and
+  Segment Display 4x7 2.0 Bricklet and HAT and HAT Zero Brick
+- Add remove-calibration and get/set-background-calibration-duration functions
+  to Air Quality Bricklet API
+- Properly check UIDs and report invalid UIDs
+
+2019-08-23: 2.1.23 (59d9363)
+- Add support for Color 2.0, Compass, Distance US 2.0, Energy Monitor,
+  Multi Touch 2.0, Rotary Poti 2.0 and XMC1400 Breakout Bricklet
+- Add get/set-filter-configuration functions to Accelerometer Bricklet 2.0 API
+- Add conversion-time symbols to Voltage/Current Bricklet 2.0 API
+
+2019-11-25: 2.1.24 (<unknown>)
+- Add set/get-voltages-callback-configuration functions and voltages callback
+  to HAT Brick API
+- Add set/get-usb-voltage-callback-configuration functions and usb-voltage
+  callback to HAT Zero Brick API
+- Add set/get-statistics-callback-configuration functions and statistics
+  callback to Isolator Bricklet API
+- Report error if authentication secret contains non-ASCII chars
+- Fix Python 3 compatibility

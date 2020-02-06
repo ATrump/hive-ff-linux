@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+. colors
+
+[[ -f /hive-config/.DISKLESS_AMD && $(cat /proc/mounts | grep "/ " | awk '{print $1}') == tmpfs ]] && echo -e "${RED}Diskless rig. Selfupgrade restricted${NOCOLOR}" && exit 0
+
+#This will prevent asking interactive questions
+export DEBIAN_FRONTEND=noninteractive
+#If needed maybe there is even stronger option @see https://askubuntu.com/questions/146921/how-do-i-apt-get-y-dist-upgrade-without-a-grub-config-prompt
+#sudo DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" dist-upgrade
+
+help_context="USAGE
+\tselfupgrade [--force] [repository URL] [version]
+DESCRIPTION
+\tTool for upgrading HiveOS from repository.
+OPTIONS
+\t-h, --help\t\tshow current help
+\t-f, --force\t\tforce upgrade; it can help in situations when selfupgrade says Hive is up to date but actually it isn't
+\trepository URL\t\tset repository to get updates from; should start with http like http://download.hiveos.farm/repo/binary or http://127.0.0.1/repo/binary
+\tversion\t\t\tspecify version to upgrade or downgrade; should use the following format x.y-zz, like 0.6-65
+EXAMPLE
+\tselfupgrade 0.6-65 http://192.168.0.1/repo/binary -f
+\t\t\t\tforce upgrade/downgrade to version 0.6-65 from repository http://192.168.0.1/repo/binary"
+
+
+current_version=`dpkg -s hive | grep '^Version: ' | sed 's/Version: //'`
+[[ -e /hive-config/RepoVer ]] &&
+	repover=`cat /hive-config/RepoVer` ||
+	repover=0
+echo -e "Current version: ${YELLOW}$current_version@$repover${NOCOLOR}"
+
+#screen -wipe > /dev/null 2>&1
+
+VERSION=
+existing_repository_list=
+repository_list=
+
+for param in $@; do
+	case $param in
+		--help|-h)
+			echo -e "$help_context"
+			exit 0
+		;;
+		--force|-f) # it can help in situations when selfupgrade says Hive is up to date but this is not true
+			echo -e "${YELLOW}> Cleaning Hive apt lists${NOCOLOR}"
+			# force HiveOS lists download
+			rm -f /var/lib/apt/lists/*hiveos*
+			# remove apt/dpkg lock files
+			echo -e "${YELLOW}> Removing apt/dpkg lock files${NOCOLOR}"
+			rm -f /var/lib/dpkg/lock*
+			rm -f /var/lib/apt/lists/lock*
+			rm -f /var/cache/apt/archives/lock*
+		;;
+
+		http*) #Set user repository
+			HIVEREPO_LIST=/etc/apt/sources.list.d/hiverepo.list
+			repository_list="deb $param /"
+
+			[[ -e $HIVEREPO_LIST ]] && existing_repository_list=$(cat $HIVEREPO_LIST)
+		;;
+
+		*) # version
+			VERSION=$param
+			if [[ ! -z $VERSION ]]; then
+				[[ ! $VERSION =~ ^[0-9]+\.[0-9]+-[0-9]+$ ]] &&
+					echo -e "${YELLOW}Invalid version format \"$VERSION\"${NOCOLOR}" &&
+					echo -e "Please use the following format x.y-zz, like 0.6-65" &&
+					exit 1
+				echo -e "${YELLOW}> Upgrading to version ${WHITE}$VERSION${NOCOLOR}"
+			fi
+		;;
+	esac
+done
+
+if [[ ! -z $repository_list && $existing_repository_list != $repository_list ]]; then
+	echo "Saving repository URLs"
+	echo "$repository_list" > $HIVEREPO_LIST
+fi
+
+#remove stupid rep file for smaller updates
+[[ -f /etc/apt/sources.list.d/amdgpu-pro.list ]] && rm /etc/apt/sources.list.d/amdgpu-pro.list
+
+#remove avrdude conf file to exclude overwrite request
+[[ -f /etc/avrdude.conf ]] && rm /etc/avrdude.conf
+
+# check available memory and stop miners in advance
+if miner status > /dev/null; then
+	mem=`free -b | grep "Mem" | awk '{print int($7/1024/1024)}'` || mem=0
+	[[ $mem -lt 250 ]] &&
+		echo -e "${YELLOW}> Low memory available - $mem MB. Stopping miners${NOCOLOR}" &&
+		miner stop
+fi
+
+#Sometimes Ubuntu fails to update repos
+dpkg --configure -a || apt-get install -f -y # try to fix broken packages
+dexitcode=$? # we do not check it here. only return on exit to show a problem
+
+hpkg update
+exitcode=$?
+
+if [[ $exitcode -eq 0 ]]; then
+	if [[ -z $VERSION ]]; then #no target version
+		updateavail=`apt list --upgradable 2>&1 | grep '^hive' | wc -l`
+		if [[ $updateavail == 0 ]]; then
+			[[ -e /hive-config/RepoVer ]] && oldrepover=`cat /hive-config/RepoVer` || oldrepover=0
+			repover-touch
+			[[ -e /hive-config/RepoVer ]] && repover=`cat /hive-config/RepoVer` || repover=0
+			#Restore old repository
+			if [[ ! -z $existing_repository_list && $existing_repository_list != `cat $HIVEREPO_LIST` ]]; then
+				echo "Restoring old repository URLs"
+				echo "$existing_repository_list" > $HIVEREPO_LIST
+			fi
+			if [[ $repover != $oldrepover ]]; then
+				hello
+				echo -e "${GREEN}Upgrade to ${YELLOW}$current_version@$repover${GREEN} complete. Have a happy mining.${NOCOLOR}"
+			else
+				echo -e "${GREEN}Hive is up to date already${NOCOLOR}"
+			fi
+			exit $dexitcode
+		fi
+	fi
+
+	# Stop wd, miners, autofan, autoswitch to prevent reboots during upgrade
+	as=$(screen -ls | grep -c autoswitch)
+	[[ $as -ne 0 ]] && echo -e "${YELLOW}> Stopping autoswitch${NOCOLOR}" && autoswitch stop > /dev/null 2>&1
+	echo -e "${YELLOW}> Stopping autofan, watchdog, miners${NOCOLOR}"
+	miner stop
+	#wd stop
+	autofan stop > /dev/null
+
+	echo ------------------------------------------------------
+
+	if [[ -z $VERSION ]]; then #normal upgrade to the latest available
+		exitcode=0
+
+		hive_extra_packages=""
+		#check if hive-lib-dotnet is installed and if yes then add to checked packages
+		dpkg -s hive-lib-dotnet > /dev/null 2>&1 &&
+			hive_extra_packages="hive-lib-dotnet $hive_extra_packages"
+
+		#Here should be listed all non-miner packages so that versions check will work
+		apt-get install -y -f --only-upgrade hive hive-lib hive-opt hive-opt-algomap $hive_extra_packages
+		aexitcode=$?
+		[[ $aexitcode -gt $exitcode ]] && exitcode=$aexitcode
+
+		#Update root miners packages, maybe some versions will be uninstalled
+		packages=$(hpkg getlist miners | grep -v '[0-9]')
+		if [[ ! -z $packages ]]; then
+			echo -e "${YELLOW}> Checking miners packages${NOCOLOR}"
+			apt-get install -y -f --only-upgrade $packages
+			aexitcode=$?
+			[[ $aexitcode -gt $exitcode ]] && exitcode=$aexitcode
+		fi
+
+		#Update version miners packages
+		packages=$(hpkg getlist miners | grep '[0-9]')
+		if [[ ! -z $packages ]]; then
+			echo -e "${YELLOW}> Checking miners version packages${NOCOLOR}"
+			apt-get install -y -f --only-upgrade $packages
+			aexitcode=$?
+			[[ $aexitcode -gt $exitcode ]] && exitcode=$aexitcode
+		fi
+	else
+		apt-get install -y -f --only-upgrade --allow-downgrades --reinstall hive=$VERSION
+		exitcode=$?
+	fi
+fi
+
+echo ------------------------------------------------------
+
+#Restore old repository
+if [[ ! -z $existing_repository_list && $existing_repository_list != `cat $HIVEREPO_LIST` ]]; then
+	echo "Restoring old repository URLs"
+	echo "$existing_repository_list" > $HIVEREPO_LIST
+fi
+
+if [[ $exitcode -ne 0 ]];then
+	if [[ ! -z $as ]]; then
+		# Start autofan, wd, miners, autoswitch if we stopped them
+		echo -e "${YELLOW}> Starting autofan, watchdog, miners${NOCOLOR}"
+		autofan restart > /dev/null
+		#wd start
+		miner start
+		[[ $as -ne 0 ]] && echo -e "${YELLOW}> Starting autoswitch${NOCOLOR}" && nohup bash -c 'sleep 15 && autoswitch start' > /tmp/nohup.log 2>&1 &
+	fi
+	echo -e "${RED}Upgrade failed${NOCOLOR}"
+	exit $exitcode
+fi
+
+#Save RepoVer
+repover-touch
+
+apt-get -y autoremove
+
+#clean cached packages to save space
+apt-get clean
+
+#Reread env variables
+source /etc/environment
+export $(cat /etc/environment | grep -vE '^$|^#' | cut -d= -f1) #export all variables from file
+
+#echo ------------------------------------------------------
+screen -wipe > /dev/null 2>&1 #Wipe possible dead screen
+
+#Moved from postinst again as hello need to see new version
+echo -e "${YELLOW}> Saying hello to server again${NOCOLOR}"
+hello
+
+#Restart agent
+echo -e "${YELLOW}> Restarting agent${NOCOLOR}"
+agent-screen restart
+
+# Start autofan, wd, miners, autoswitch
+echo -e "${YELLOW}> Starting autofan, watchdog, miners${NOCOLOR}"
+autofan restart > /dev/null
+#wd start
+miner start
+[[ $as -ne 0 ]] && echo -e "${YELLOW}> Starting autoswitch${NOCOLOR}" && nohup bash -c 'sleep 15 && autoswitch start' > /tmp/nohup.log 2>&1 &
+
+# Restarting ROH Fan controller
+if [[ `lsusb | grep -c 16c0:05dc` -ge 1 ]]; then
+	screen -S octofan -X quit > /dev/null
+	$OCTOFAN dontattach
+fi
+
+current_version=`dpkg -s hive | grep '^Version: ' | sed 's/Version: //'`
+[[ -e /hive-config/RepoVer ]] &&
+	repover=`cat /hive-config/RepoVer` ||
+	repover=0
+
+echo -e "${GREEN}Upgrade to ${YELLOW}$current_version@$repover${GREEN} complete. Have a happy mining.${NOCOLOR}"
+[[ ! -z $VERSION ]] && echo -e "${WHITE}Reboot is highly recommended after downgrade.${NOCOLOR}"
+
+exit $dexitcode

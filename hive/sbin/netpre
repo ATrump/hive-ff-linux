@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+#Network preconfiguration
+export PATH="./:/hive/bin:/hive/sbin:$PATH"
+. colors
+[[ -f /hive-config/.DISKLESS_AMD && $(cat /proc/mounts | grep "/ " | awk '{print $1}') == tmpfs ]] && echo "Diskless rig. Skipped" && exit 0
+
+# FS checking is here as we don't want to have too many services
+# And we need clean fs before cnfig files
+#To ensure we can read and write /hive-config
+
+PART_UUID=`cat /proc/cmdline | tr " " "\n" | grep "UUID" | sed 's/\(^root=UUID=\)//'`
+DISK_PART=`blkid | grep -m1 $PART_UUID | awk '{ print $1 }' | sed 's/://' | sed 's/\(^\/dev\/\)//'`
+root_dev=`echo ${DISK_PART} | sed 's/\([[:digit:]]\)//'`
+
+if [[ $(blkid -o value -s PTTYPE /dev/$root_dev) == "gpt" ]]; then
+	sgdisk -e /dev/$root_dev > /dev/null 2>&1
+	sgdisk -C /dev/$root_dev > /dev/null 2>&1
+	partprobe > /dev/null 2>&1
+fi
+
+
+#probably it's mounted with fstab at boot
+if cat /proc/mounts | grep /hive-config; then
+	echo "> Unmounting /hive-config"
+	#umount /hive-config
+	systemctl stop hive\\x2dconfig.mount
+else
+	echo "> /hive-config was not mounted, skipping unmount"
+fi
+
+
+
+echo "> Checking /hive-config"
+eval `blkid /dev/disk/by-label/HIVE | tr " " "\n" | grep TYPE=`
+if [[ $TYPE = "ntfs" ]]; then
+	ntfsfix --clear-dirty /dev/disk/by-label/HIVE
+elif [[ $TYPE = "fat" ]]; then
+	fsck.fat -a /dev/disk/by-label/HIVE
+else
+	echo "Unknown filsystem type \"$TYPE\" for /dev/disk/by-label/HIVE"
+fi
+
+# Mounting
+echo "> Mounting /hive-config"
+#mount /hive-config
+systemctl start hive\\x2dconfig.mount
+exitcode=$?
+if [[ $exitcode == 0 ]]; then #|| $exitcode == 16  - 16 already mounted for 'mount' command, for service this does not work
+	echo -e "Mounted /hive-config"
+else
+	echo -e "Unable to mount /hive-config"
+	exit 1
+fi
+
+
+#systemctl status systemd-networkd
+if [[ `ls -1 /hive-config/network/*.network | wc -l` == 0 ]]; then
+	echo "No /hive-config/network/*.network files"
+else
+	rm /etc/systemd/network/*.network
+	for hivefile in /hive-config/network/*.network; do
+		echo "Copying $hivefile to /etc/systemd/network/"
+		cp $hivefile /etc/systemd/network/
+	done
+
+	dos2unix-safe /etc/systemd/network/*.network
+	chmod 644 /etc/systemd/network/*.network
+
+	#add new line to prevent systemd stupidity
+	for fname in /etc/systemd/network/*.network; do
+		echo "" >> "$fname"
+	done
+fi
+#cp -f /hive-config/network/10-static.network /etc/systemd/network/10-static.network
+
+
+#Try to setup wifi if it is found
+wifi setup
+
+
+exit 0

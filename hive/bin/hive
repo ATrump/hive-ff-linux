@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# __    __         __                  _                                            _                      _
+#/ / /\ \ \___    /__\ ___  __ _ _   _(_)_ __ ___     /\/\   ___  _ __ ___    /\/\ (_)_ __   ___ _ __ __ _| |___
+#\ \/  \/ / _ \  / \/// _ \/ _\`| | | | | '__/ _ \   /    \ / _ \| '__/ _ \  /    \| | '_ \ / _ \ '__/ _\`| / __|
+# \  /\  /  __/ / _  \  __/ (_| | |_| | | | |  __/  / /\/\ \ (_) | | |  __/ / /\/\ \ | | | |  __/ | | (_| | \__ \
+#  \/  \/ \___| \/ \_/\___|\__, |\__,_|_|_|  \___|  \/    \/\___/|_|  \___| \/    \/_|_| |_|\___|_|  \__,_|_|___/
+#                             |_|
+source /etc/environment
+export $(cat /etc/environment | grep -vE '^$|^#' | cut -d= -f1) #export all variables from file
+export HOME=/home/user #required by ccminer
+
+#[ -t 1 ] &&
+. colors #use them anyway
+
+#Check diskless
+DISKLESS=0
+
+#Check benchmark
+bench=0
+
+function echo2 {
+  echo -e "$1" > /dev/tty1
+  echo -e "$1"
+}
+
+
+cat /proc/mounts | grep -q /hive-config
+if [[ $? -ne 0 && ! -e /hive-config/rig.conf && $DISKLESS != 1 ]]; then
+	#0 - mounted (grep ok), 1 - grep not found (unmounted)
+	#checking for rig.conf is for very old systems without a mounted config partition
+	echo2 "${RED}Config directory /hive-config is not mounted, please check filesystem.${NOCOLOR}"
+	echo2 "${RED}This needs to be fixed for proper system operation.${NOCOLOR}"
+	echo2 "${YELLOW}Alt+F2 to switch to other terminal and login.${NOCOLOR}"
+
+	#nohup sudo -i bash > /dev/null 2>&1 &
+	#systemctl restart hive-console
+
+	exit 1
+fi
+
+if [[ -e /hive-config/branding-logo.txt ]]; then
+	BRANDING_LOGO=$(cat /hive-config/branding-logo.txt; echo .) #echo . to preserve new lines
+	BRANDING_LOGO=${BRANDING_LOGO%.} #remove last .
+elif [[ -e /hive/etc/branding-logo.txt ]]; then
+  BRANDING_LOGO=$(cat /hive/etc/branding-logo.txt; echo .) #echo . to preserve new lines
+  BRANDING_LOGO=${BRANDING_LOGO%.} #remove last .
+else
+	BRANDING_LOGO="${BYELLOW}
+ _______ _______ ___ ___ _______   ________ ________
+|   |   |_     _|   |   |    ___| |   ____/|   ____/
+|       |_|   |_|   |   |    ___| |   |__/ |   |__/
+|___|___|_______|\_____/|_______| |___|    |___|
+
+"
+fi
+BRANDING_LOGO="${BRANDING_LOGO}${NOCOLOR}"
+
+#Check for proxy var. Or agent and others started from here will not see it
+. http_proxy.sh
+
+#Make directory in RAM
+mkdir -p /run/hive > /dev/null 2>&1
+
+#ensure we have unix config
+dos2unix-safe /hive-config/rig.conf
+[[ -e /hive-config/ref_id.txt ]] && dos2unix-safe /hive-config/ref_id.txt
+
+uname="`uname -sr`   ${YELLOW}H `dpkg -s hive | grep '^Version: ' | sed 's/Version: //'`${NOCOLOR}"
+
+msg=$(cat <<EOF
+$uname
+${BRANDING_LOGO}
+${CYAN}`hostname`${NOCOLOR}
+${BPURPLE}`hostname -I`${NOCOLOR}
+
+EOF
+)
+
+echo2 "$msg"
+
+
+### OpenVPN #############################################################################################
+openvpn-install
+#will wait for interface
+
+[[ -e $RIG_CONF ]] &&
+  . $RIG_CONF
+
+# request maintenance mode before loading drivers
+if [[ ! -z $RIG_ID && ! -z $RIG_PASSWD && ! -z $HIVE_HOST_URL ]]; then
+  # check and waiting for online. rigs with ssd can boot faster than network is configured.
+  # systemd-networkd-wait-online is broken on Ubuntu 18 image
+  for((i=1; i<10; i++))
+  do
+    networkctl list | grep -q routable && break
+    networkctl list | grep -q configuring || break
+    echo2 "> Waiting for network ($i)"
+    sleep 1
+  done
+
+  echo2 "> Quering boot settings"
+
+  request=`jq -c -n --arg rig_id "$RIG_ID" --arg passwd "$RIG_PASSWD" '{"method":"get_options","params":{"rig_id": $rig_id,"passwd": $passwd}}' 2>/dev/null`
+  response=`echo "$request" | curl --insecure -L --data @- --connect-timeout 7 --max-time 15 --silent -XPOST "$HIVE_HOST_URL/worker/api" -H "Content-Type: application/json"`
+  if [[ $exitcode -ne 0 ]]; then
+    echo -e "${RED}Connection to Hive server '$HIVE_HOST_URL' failed ($exitcode)${NOCOLOR}"
+  else
+    _IFS=$IFS; IFS=$'\n'
+    res=(`echo "$response" | jq -c -r '.error.code, .result.disable_gui, .result.maintenance_mode, .error.message' 2>/dev/null`)
+    exitcode=$?
+    IFS=$_IFS
+    if [[ "${res[0]}" != "null"  ]]; then
+      [[ ! -z ${res[3]} && ${res[3]} != "null" ]] &&
+        echo -e "${RED}Got error (${res[0]}) - ${res[3]}${NOCOLOR}" ||
+        echo -e "${RED}Got bad response - ${YELLOW}'$response'${NOCOLOR}"
+    else
+      [[ "${res[1]}" == "null" ]] && X_DISABLED= || X_DISABLED=${res[1]}
+      [[ "${res[2]}" == "null" ]] && MAINTENANCE= || MAINTENANCE=${res[2]}
+    fi
+  fi
+  echo2 "> Boot settings: MAINTENANCE_MODE='$MAINTENANCE', DISABLE_GUI='$X_DISABLED'"
+fi
+
+motd
+
+#Run watchdog pinger ASAP. Will detect device.
+echo2 "> Detecting watchdogs"
+
+echo2 "> Applying crontab"
+crontab /hive/etc/crontab.root
+
+echo2 "> Saying hello to server"
+hello boot
+[[ -e $RIG_CONF ]] &&
+  . $RIG_CONF
+
+# cache host only if network is online to reduce boot time. it will be run by cron anyway
+if networkctl list | grep -q routable; then
+  echo2 "> Caching host resolve"
+  cache-hive-ip
+fi
+
+# Setup locale maybe on the very first run
+[[ ! -z $SYSTEM_LANG ]] &&
+  locale-setup "$SYSTEM_LANG" &&
+  export $SYSTEM_LANG
+
+
+echo2 "> Starting agent screen"
+agent-screen start
+
+
+if [[ $MAINTENANCE == 1 || $MAINTENANCE == 2 ]]; then
+  echo2 "> Maintenance mode. Autofan is disabled"
+else
+  echo2 "> Starting Hive FF autocontrol"
+#TO-DO: Hive FF autocontrol starts here
+fi
+
+echo2 "> Hive FF Start Finished"
+
+exit 0

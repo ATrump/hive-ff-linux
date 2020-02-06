@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Turns sys logs off
+
+#[ -t 1 ] &&
+. colors
+
+
+STARTCMNT="# LOGS OFF START"
+ENDCMNT="# LOGS OFF END"
+
+fstab=`cat /etc/fstab`
+
+
+# Fix systemd-journald persistent files
+if ! (cat /etc/systemd/journald.conf | grep -q '^Storage=volatile$'); then
+	sed -E 's/^[#]?Storage=.*$/Storage=volatile/g' -i /etc/systemd/journald.conf
+	systemctl restart systemd-journald #this will put logs to ram now
+	mount --bind / /mnt && rm -rf /mnt/var/log/* && umount /mnt
+fi
+
+
+echo "$fstab" | grep -q "$STARTCMNT"
+
+[[ $? -eq 0 ]] &&
+	echo "Logs already disabled" &&
+	exit 0
+
+
+echo "$fstab
+
+$STARTCMNT
+tmpfs /tmp tmpfs defaults,noatime,size=100M,mode=1777 0 0
+tmpfs /var/tmp tmpfs defaults,noatime,mode=1777 0 0
+tmpfs /var/log tmpfs defaults,noatime,mode=0755 0 0
+tmpfs /var/log/apt tmpfs defaults,noatime 0 0
+tmpfs /var/log/journal tmpfs defaults,noatime 0 0
+$ENDCMNT" > /etc/fstab
+
+
+#remove disk logs, save space
+rm -r /var/log/*
+mkdir -p /var/log/journal
+
+
+mount -t tmpfs -o defaults,noatime,mode=0755 tmpfs /var/log
+#miner logdirscreate
+
+echo -e "Disk logs are ${RED}disabled${NOCOLOR} now. You will have logs only from the last boot.
+To turn them back on run \"logs-on\".
+${YELLOW}Please reboot.${NOCOLOR}"
+

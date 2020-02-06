@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+
+#Must be empty in release
+DEBUG_COMMANDS=
+VERS="0.1.0"
+
+################################################################################
+#settings (for rof_fc.conf without DEF_), default values
+
+DEF_FAN_1_IN_PORT=a
+DEF_FAN_2_IN_PORT=b
+DEF_FAN_3_IN_PORT=c
+DEF_FAN_4_IN_PORT=d
+DEF_FAN_5_IN_PORT=e
+DEF_FAN_6_IN_PORT=f
+DEF_FANS_SPEED_OUT_PORT=g
+DEF_FLAPS_OUT_PORT=h
+
+if [[ -z $HIVE_FF_CONF ]]; then #reread env variables as after upgrade this can be empty
+  source /etc/environment
+  export $(cat /etc/environment | grep -vE '^$|^#' | cut -d= -f1) #export all variables from file
+fi
+
+. colors
+. /hive-config/rig.conf
+
+TF_ENUMERATE=/run/hive/tf_enumerate
+
+FAN_1_IN_PORT=
+FAN_2_IN_PORT=
+FAN_3_IN_PORT=
+FAN_4_IN_PORT=
+FAN_5_IN_PORT=
+FAN_6_IN_PORT=
+FANS_SPEED_OUT_PORT=
+FLAPS_OUT_PORT=
+
+FAN_1_IN_UID=
+FAN_2_IN_UID=
+FAN_3_IN_UID=
+FAN_4_IN_UID=
+FAN_5_IN_UID=
+FAN_6_IN_UID=
+FANS_SPEED_OUT_UID=
+FLAPS_OUT_UID=
+
+################################################################################
+
+load_def_values () {
+  [[ -f $HIVE_FF_CONF ]] && source $HIVE_FF_CONF
+
+  [[ -z $FAN_1_IN_PORT ]] && FAN_1_IN_PORT=$DEF_FAN_1_IN_PORT
+  [[ -z $FAN_2_IN_PORT ]] && FAN_2_IN_PORT=$DEF_FAN_2_IN_PORT
+  [[ -z $FAN_3_IN_PORT ]] && FAN_3_IN_PORT=$DEF_FAN_3_IN_PORT
+  [[ -z $FAN_4_IN_PORT ]] && FAN_4_IN_PORT=$DEF_FAN_4_IN_PORT
+  [[ -z $FAN_5_IN_PORT ]] && FAN_5_IN_PORT=$DEF_FAN_5_IN_PORT
+  [[ -z $FAN_6_IN_PORT ]] && FAN_6_IN_PORT=$DEF_FAN_6_IN_PORT
+  [[ -z $FANS_SPEED_OUT_PORT ]] && FANS_SPEED_OUT_PORT=$DEF_FANS_SPEED_OUT_PORT
+  [[ -z $FLAPS_OUT_PORT ]] && FLAPS_OUT_PORT=$DEF_FLAPS_OUT_PORT
+
+  [[ ! -f $TF_ENUMERATE ]] && tinkerforge enumerate >> $TF_ENUMERATE
+}
+
+get_uids () {
+  FAN_1_IN_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FAN_1_IN_PORT" | head -1 | cut -d "=" -f 2`;
+  FAN_2_IN_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FAN_2_IN_PORT" | head -1 | cut -d "=" -f 2`;
+  FAN_3_IN_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FAN_3_IN_PORT" | head -1 | cut -d "=" -f 2`;
+  FAN_4_IN_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FAN_4_IN_PORT" | head -1 | cut -d "=" -f 2`;
+  FAN_5_IN_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FAN_5_IN_PORT" | head -1 | cut -d "=" -f 2`;
+  FAN_6_IN_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FAN_6_IN_PORT" | head -1 | cut -d "=" -f 2`;
+  FANS_SPEED_OUT_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FANS_SPEED_OUT_PORT" | head -1 | cut -d "=" -f 2`;
+  FLAPS_OUT_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FLAPS_OUT_PORT" | head -1 | cut -d "=" -f 2`;
+}
+
+set_analog_out_v () {
+  tinkerforge call analog-out-v3-bricklet $1 set-output-voltage $2
+}
+
+set_fans_speed () {
+  set_analog_out_v $FANS_SPEED_OUT_UID $(($1*12000/100))
+}
+
+set_flaps_position () {
+  set_analog_out_v $FLAPS_OUT_UID $(($1*12000/100))
+}
+
+print_help () {
+  echo -e "${CYAN}ROH Fan Controller v$VERS"
+  echo -e "${WHITE}This tool is used to control ROH fans."
+  echo
+  echo -e "${YELLOW}Usage:"
+  echo -e "\t${CYAN}HIVE_FF parameter [value]"
+  echo
+  echo -e "${YELLOW}Other examples of usage:${NOCOLOR}"
+  echo -e "\t${CYAN}hive-ff --autofan | -a \"value\"            ${LGRAY}- read JSON input parameters, set fans speed and flaps_position ${NOCOLOR}"
+  echo -e "\t${CYAN}hive-ff --get_fans_speed | -gfs             ${LGRAY}- print current fans speed ${NOCOLOR}"
+  echo -e "\t${CYAN}hive-ff --set_fans_speed | -sfs value       ${LGRAY}- set fans speed to value in percent ${NOCOLOR}"
+  echo -e "\t${CYAN}hive-ff --set_flaps_position | -sfp value   ${LGRAY}- set flaps position to value in percent ${NOCOLOR}"
+  echo -e "\t${CYAN}hive-ff --help | -h         ${LGRAY}- print this help ${NOCOLOR}"
+}
+
+load_def_values
+get_uids
+
+
+if [[ $1 == "--help" || $1 == "-h" ]];  then
+  print_help
+elif [[ $1 == "set_fans_speed" || $1 == "-sfs" ]]; then
+  set_fans_speed $2
+else
+  print_help
+fi

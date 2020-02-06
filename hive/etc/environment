@@ -1,0 +1,19 @@
+# ln -sf /hive/etc/environment /etc/environment
+# Please do not use the char "$" here or variable size will grow toward infinity
+# Don't forget to set this in crontab if you change path
+PATH="./:/hive/bin:/hive/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games"
+
+
+# Hive vars
+RIG_CONF=/hive-config/rig.conf
+
+OCTOFAN_CONF=/hive-config/octofan.conf
+OCTOFAN=/hive/opt/octofan/octofan
+
+HIVE_FF_CONF=/hive-config/HIVE_FF.conf
+
+VNC_PASSWD=/hive-config/vnc-password.txt
+
+REF_ID=/hive-config/ref_id.txt
+
+SSL_SESSION_FILE=/tmp/ssl-session-file.pem

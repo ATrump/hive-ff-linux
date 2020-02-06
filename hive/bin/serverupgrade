@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+. colors
+[[ ! -f /hive-config/.DISKLESS_AMD ]] && echo -e "${RED}Only for server upgrade${NOCOLOR}" && exit 0
+[[ -f /hive-config/.DISKLESS_AMD && $(cat /proc/mounts | grep "/ " | awk '{print $1}') == tmpfs ]] && echo -e "${RED}Diskless rig. Selfupgrade restricted${NOCOLOR}" && exit 0
+
+#This will prevent asking interactive questions
+export DEBIAN_FRONTEND=noninteractive
+#If needed maybe there is even stronger option @see https://askubuntu.com/questions/146921/how-do-i-apt-get-y-dist-upgrade-without-a-grub-config-prompt
+#sudo DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" dist-upgrade
+
+
+
+current_version=`dpkg -s hive | grep '^Version: ' | sed 's/Version: //'`
+[[ -e /hive-config/RepoVer ]] &&
+	repover=`cat /hive-config/RepoVer` ||
+	repover=0
+echo -e "Current version: ${YELLOW}$current_version@$repover${NOCOLOR}"
+
+VERSION=$1
+
+if [[ ! -z $VERSION ]]; then
+	[[ ! $VERSION =~ ^[0-9]+\.[0-9]+-[0-9]+$ ]] &&
+		echo -e "${YELLOW}Invalid version format \"$VERSION\"${NOCOLOR}" &&
+		echo -e "Please use the following format x.y-zz, like 0.5-12" &&
+		exit 1
+fi
+
+
+#remove stupid rep file for smaller updates
+
+#Sometimes Ubuntu fails to update repos
+dpkg --configure -a
+
+hpkg update || exit $?
+
+
+if [[ -z $VERSION ]]; then #no target version
+	updateavail=`apt list --upgradable 2>&1 | grep '^hive' | wc -l`
+	if [[ $updateavail == 0 ]]; then
+		echo -e "${GREEN}Hive is up to date already${NOCOLOR}"
+		[[ -e /hive-config/RepoVer ]] && oldrepover=`cat /hive-config/RepoVer` || oldrepover=0
+
+		repover-touch
+		[[ -e /hive-config/RepoVer ]] && repover=`cat /hive-config/RepoVer` || repover=0
+
+		[[ $repover != $oldrepover ]] && hello
+
+		exit 0
+	fi
+fi
+
+echo ------------------------------------------------------
+
+if [[ -z $VERSION ]]; then #normal upgrade to the latest available
+	exitcode=0
+
+	hive_extra_packages=""
+	#check if hive-lib-dotnet is installed and if yes then add to checked packages
+	dpkg -s hive-lib-dotnet > /dev/null 2>&1 &&
+		hive_extra_packages="hive-lib-dotnet $hive_extra_packages"
+
+	#Here should be listed all non-miner packages so that versions check will work
+	apt-get install -y --only-upgrade hive hive-lib hive-opt hive-opt-algomap $hive_extra_packages
+	aexitcode=$?
+	[[ $aexitcode -gt $exitcode ]] && exitcode=$aexitcode
+
+	#Update root miners packages, maybe some versions will be uninstalled
+	packages=$(hpkg getlist miners | grep -v '[0-9]')
+	if [[ ! -z $packages ]]; then
+		echo -e "${YELLOW}> Checking miners packages${NOCOLOR}"
+		apt-get install -y --only-upgrade $packages
+		aexitcode=$?
+		[[ $aexitcode -gt $exitcode ]] && exitcode=$aexitcode
+	fi
+
+	#Update version miners packages
+	packages=$(hpkg getlist miners | grep '[0-9]')
+	if [[ ! -z $packages ]]; then
+		echo -e "${YELLOW}> Checking miners version packages${NOCOLOR}"
+		apt-get install -y --only-upgrade $packages
+		aexitcode=$?
+		[[ $aexitcode -gt $exitcode ]] && exitcode=$aexitcode
+	fi
+else
+	apt-get install -y --only-upgrade --allow-downgrades --reinstall hive=$VERSION
+	exitcode=$?
+fi
+
+[[ $exitcode -ne 0 ]] && echo -e "${RED}Upgrade failed${NOCOLOR}" && exit $exitcode
+
+# Save RepoVer ---------------------------------------------------------------------------------------
+repover-touch
+
+
+echo ------------------------------------------------------
+
+apt-get -y autoremove
+
+
+#clean cached packages to save space
+apt-get clean
+
+
+#Reread env variables
+source /etc/environment
+export $(cat /etc/environment | grep -vE '^$|^#' | cut -d= -f1) #export all variables from file
+
+current_version=`dpkg -s hive | grep '^Version: ' | sed 's/Version: //'`
+[[ -e /hive-config/RepoVer ]] &&
+	repover=`cat /hive-config/RepoVer` ||
+	repover=0
+echo -e "${GREEN}Upgrade to ${YELLOW}$current_version@$repover${GREEN} complete. Have a happy mining.${NOCOLOR}"
+
+
+#Flush buffers if any files changed
+sync
+
+exit 0

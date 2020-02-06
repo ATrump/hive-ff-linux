@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# Sends messages to server
+
+if [[ -z $RIG_CONF ]]; then #reread env variables as after upgrade this can be empty
+	source /etc/environment
+	export $(cat /etc/environment | grep -vE '^$|^#' | cut -d= -f1) #export all variables from file
+fi
+
+
+. /hive/bin/colors
+
+[ ! -f $RIG_CONF ] && echo -e "No config $RIG_CONF" && exit 1
+. $RIG_CONF
+
+HIVE_URL="$HIVE_HOST_URL/worker/api"
+LOG="/var/log/hive-agent.log"
+#echo $#
+if [[ $# < 2 ]]; then
+	echo "Usage: $0 success|danger|warning|info|file \"message\" [payload] [-i|--id=msgid] [-f|--file=path/name]"
+	echo "Aliases: ok|error|err|warn|default"
+	echo "payload is read from stdin"
+	exit 1
+fi
+
+type="$1"
+data="$2"
+
+MSGCOLOR=$CYAN
+[[ $type == "error" || $type == "err" ]] && type="danger" && MSGCOLOR=$RED
+[[ $type == "warn" ]] && type="warning" && MSGCOLOR=$YELLOW
+[[ $type == "ok" ]] && type="success" && MSGCOLOR=$GREEN
+
+
+#sending blink command to octofan in case of errors
+[[ `lsusb | grep -c 16c0:05dc` -ge 1 && $type == "danger" && -e $OCTOFAN ]] && $OCTOFAN blink_error
+
+request=$(
+echo "$payload_json" | jq -n \
+--arg rig_id "$RIG_ID" \
+--arg passwd "$RIG_PASSWD" \
+--arg type "$type" \
+--arg data "$data" \
+'{
+	"method": "message", "jsonrpc": "2.0", "id": 0,
+	"params": {$rig_id, $passwd, $type, $data}
+}'
+)
+#echo $request | jq .
+
+id=
+payload=
+for i in "$@"; do
+	case $i in
+		-i=*|--id=*)
+			id="${i#*=}"
+			id_json=`jq --arg id "$id" -n '{"params": {$id}}'`
+			request=`echo "$request $id_json" | jq -sc '.[0] * .[1]'`
+			shift
+		;;
+		--meta=*)
+			meta="${i#*=}"
+			echo $meta | jq
+			meta_json=`jq --argjson meta "$meta" -n '{"params": {$meta}}'`
+			request=`echo "$request $meta_json" | jq -sc '.[0] * .[1]'`
+			shift
+		;;
+		payload)
+			#echo "With payload"
+			payload=$(cat)
+			payload_json=`echo -n "$payload" | jq -R -s '{"params": {"payload": .}}'`
+			request=`echo "$request $payload_json" | jq -sc '.[0] * .[1]'`
+			shift # past argument with no value
+		;;
+		-f=*|--file=*)
+			[[ $type != "file" ]] && echo "Type \"file\" must be used" && exit 2
+			file="${i#*=}"
+			[[ ! -e $file ]] && echo "File not found: \"$file\"" && exit 1
+			payload=`cat "$file" | gzip -9 --stdout | base64 -w 0`
+			payload_json=`echo -n "$payload" | jq -R -s '{"params": {"payload": .}}'`
+			request=`echo "$request $payload_json" | jq -sc '.[0] * .[1]'`
+			shift # past argument with no value
+		;;
+		*)
+			# unknown option
+		;;
+	esac
+done
+
+
+#date
+echo -e "> Sending ${payload:+with payload }\"$type\": ${MSGCOLOR}$data${NOCOLOR}"
+#echo $request
+echo "$request" | jq -c --arg pass "${RIG_PASSWD//?/*}" '.params.passwd=$pass | if .params.payload then .params.payload |= "[\(.|length) bytes]" else . end'
+#Show output and exit for debug
+#echo $request | jq . && exit
+
+#[ $? -ne 0 ] && echo "Error formatting JSON message" && exit 1
+
+echo "[`date`] > `echo $request | jq . -c`" >> $LOG
+#echo "[`date`] > $request" >> $LOG
+
+response=$(echo "$request" | curl --insecure -L --data @- \
+--connect-timeout 7 --max-time 15 --silent \
+-XPOST "${HIVE_URL}?id_rig=$RIG_ID&method=message"  -H "Content-Type: application/json")
+
+exitcode=$?
+if [ $exitcode -ne 0 ]; then
+	echo "Error sending message (curl code=$exitcode)"
+	echo "[`date`] < Error sending message (curl code=$exitcode)" >> $LOG
+	exit $exitcode
+fi
+
+#echo "[`date`] < $response" >> $LOG
+echo "[`date`] < `echo $response | jq . -c`" >> $LOG
+
+error=$(echo $response | jq '.error' --raw-output)
+#[[ ! -z $error && $error != "null" ]] && echo -e "Error response: `echo $response | jq '.error' -r`" && exit 1
+[[ ! -z $error && $error != "null" ]] && echo "Error response: $error" && exit 1
+
+
+exit 0

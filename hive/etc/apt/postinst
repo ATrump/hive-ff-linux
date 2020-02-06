@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+
+# Post installation script for deb package
+mkdir -p /run/hive
+
+chown -R user:user /hive
+chown -R root:root /hive/etc/logrotate.d/* #or the rules will not work
+
+#just to ensure log is preserved between boots
+mkdir -p /var/log/journal
+
+#miner logdirscreate
+
+#can be fat partition, no more messages
+#chown -R user:user /hive-config > /dev/null
+
+
+# Environment ------------------------------------------------------------------------------------
+
+[[ ! -L /etc/environment && -e /hive/etc/environment ]] && #it's not a symlink
+	echo "Linking /etc/environment" &&
+	mv -f /etc/environment /etc/environment~ &&
+	ln -sf /hive/etc/environment /etc/environment
+
+[[ ! -L /home/user/.bash_aliases && -e /hive/etc/.bash_aliases ]] && #it's not a symlink
+	echo "Linking /etc/.bash_aliases" &&
+	mv -f /home/user/.bash_aliases /home/user/.bash_aliases~ &&
+	ln -sf /hive/etc/.bash_aliases /home/user/.bash_aliases
+
+[[ ! -L /home/user/.bashrc && -e /hive/etc/.bashrc ]] && #it's not a symlink
+	echo "Linking /etc/.bashrc" &&
+	mv -f /home/user/.bashrc /home/user/.bashrc~ &&
+	ln -sf /hive/etc/.bashrc /home/user/.bashrc
+
+[[ ! -L /home/user/.profile && -e /hive/etc/.profile ]] && #it's not a symlink
+	echo "Linking /etc/.profile" &&
+	mv -f /home/user/.profile /home/user/.profile~ &&
+	ln -sf /hive/etc/.profile /home/user/.profile
+
+[[ ! -L /root/.bash_aliases && -e /hive/etc/.bash_aliases ]] && #it's not a symlink
+	echo "Linking /etc/.bash_aliases" &&
+	mv -f /root/.bash_aliases /root/.bash_aliases~ &&
+	ln -sf /hive/etc/.bash_aliases /root/.bash_aliases
+
+[[ ! -L /root/.bashrc && -e /hive/etc/.bashrc ]] && #it's not a symlink
+	echo "Linking /etc/.bashrc" &&
+	mv -f /root/.bashrc /root/.bashrc~ &&
+	ln -sf /hive/etc/.bashrc /root/.bashrc
+
+[[ ! -L /root/.profile && -e /hive/etc/.profile ]] && #it's not a symlink
+	echo "Linking /etc/.profile" &&
+	mv -f /root/.profile /root/.profile~ &&
+	ln -sf /hive/etc/.profile /root/.profile
+
+# Services ---------------------------------------------------------------------------------------
+
+[[ ! -f /lib/systemd/system/hive.service ]] &&
+	echo "Linking and enabling hive service" &&
+	ln -s /hive/etc/hive.service /lib/systemd/system/hive.service &&
+	systemctl enable hive
+
+[[ ! -f /lib/systemd/system/hive-console.service ]] &&
+	echo "Linking hive-console service" &&
+	ln -s /hive/etc/hive-console.service /lib/systemd/system/hive-console.service
+
+[[ ! -f /lib/systemd/system/hive-netpre.service ]] &&
+	echo "Linking hive-netpre service" &&
+	ln -s /hive/etc/hive-netpre.service /lib/systemd/system/hive-netpre.service &&
+	systemctl enable hive-netpre.service
+
+if [[ ! -L /lib/systemd/system/systemd-networkd-wait-online.service ]]; then #check for symlink
+	echo "Linking systemd-networkd-wait-online.service"
+	rm /lib/systemd/system/systemd-networkd-wait-online.service > /dev/null 2>&1
+	ln -sf /hive/etc/systemd-networkd-wait-online.service /lib/systemd/system/systemd-networkd-wait-online.service
+fi
+
+if [[ ! -L /lib/systemd/system/wpa_supplicant@wlan0.service ]]; then #check for symlink
+	echo "Linking wpa_supplicant@wlan0.service"
+	rm /lib/systemd/system/wpa_supplicant@wlan0.service > /dev/null 2>&1
+	ln -sf /hive/etc/wpa_supplicant@wlan0.service /lib/systemd/system/wpa_supplicant@wlan0.service
+fi
+
+if [[ ! -L /lib/systemd/system/wpa_supplicant@ra0.service ]]; then #check for symlink
+	echo "Linking wpa_supplicant@ra0.service"
+	rm /lib/systemd/system/wpa_supplicant@ra0.service > /dev/null 2>&1
+	ln -sf /hive/etc/wpa_supplicant@wlan0.service /lib/systemd/system/wpa_supplicant@ra0.service
+fi
+
+systemctl daemon-reload
+
+# Cron ---------------------------------------------------------------------------------------
+
+#remove system, use our own cron
+[[ -f /etc/cron.hourly/logrotate ]] &&
+	echo "Removing /etc/cron.hourly/logrotate" &&
+	rm /etc/cron.hourly/logrotate
+
+[[ -f /etc/cron.daily/logrotate ]] &&
+	echo "Removing /etc/cron.daily/logrotate" &&
+	rm /etc/cron.daily/logrotate
+
+[[ ! -f /etc/logrotate.d/hive ]] &&
+	echo "Linking hive logrotate" &&
+	ln -sf /hive/etc/logrotate.d/hive /etc/logrotate.d/hive
+
+[[ ! -L /etc/logrotate.d/rsyslog ]] && #check for symlink
+	echo "Linking rsyslog config" &&
+	rm /etc/logrotate.d/rsyslog &&
+	ln -sf /hive/etc/logrotate.d/rsyslog /etc/logrotate.d/rsyslog
+
+crontab /hive/etc/crontab.root
+
+systemctl restart cron.service
+
+#if [[ ! -f /etc/cron.hourly/logrotate ]]; then
+#	if [[ -f /etc/cron.daily/logrotate ]]; then
+#		echo "Moving /etc/cron.daily/logrotate to /etc/cron.hourly/logrotate"
+#		mv /etc/cron.daily/logrotate /etc/cron.hourly/logrotate
+#		#service cron restart
+#		systemcwtl restart cron.service
+#		/etc/cron.hourly/logrotate
+#	else
+#		echo "WARNING: /etc/cron.daily/logrotate does not exist"
+#	fi
+#fi
+
+
+#MEMORY ALLOC FAILED: mlock failed for xmr-stak-cpu miner
+cat /etc/sysctl.conf | grep -q "vm.nr_hugepages"; [[ $? -eq 1 ]] && (echo "vm.nr_hugepages = 128" >> /etc/sysctl.conf && sysctl -w vm.nr_hugepages=128)
+#cat /etc/security/limits.conf | grep -q "* soft memlock 262144"; [[ $? -eq 1 ]] && echo "* soft memlock 262144" >> /etc/security/limits.conf
+#cat /etc/security/limits.conf | grep -q "* hard memlock 262144"; [[ $? -eq 1 ]] && echo "* hard memlock 262144" >> /etc/security/limits.conf
+
+if [[ ! -f /hive-config/.DISKLESS_AMD ]]; then
+	# USB drive optimizations --------------------------------------------------------------------------------------
+	cat /etc/fstab | grep "^UUID=bfa0733b-bdb9-4846-914a-45160bac3ed0" | grep -q "noatime,commit=120"
+	[[ $? -eq 1 ]] && #not found
+		echo "Setting \"noatime,commit=120\" as root FS mount options" &&
+		sed -i 's/^UUID=bfa0733b-bdb9-4846-914a-45160bac3ed0.*/UUID=bfa0733b-bdb9-4846-914a-45160bac3ed0 \/ ext4 errors=remount-ro,noatime,commit=120 0 1/g' /etc/fstab
+
+
+
+	#NTFS hive-config mount options
+	if cat /etc/fstab | grep -q "^LABEL=HIVE.*ntfs-3g"; then
+		mountopts="errors=remount-ro,fmask=0133,dmask=0022,noatime,remove_hiberfile,nofail"
+		cat /etc/fstab | grep "^LABEL=HIVE" | grep -q "$mountopts"
+		[[ $? -eq 1 ]] && #not found
+			echo "Setting NTFS mount options" &&
+			sed -i 's/^LABEL=HIVE.*/LABEL=HIVE \/hive-config ntfs-3g '$mountopts' 0 2/g' /etc/fstab
+	fi
+fi
+
+
+
+# Config directory setup -----------------------------------------------------------------------
+
+[[ ! -d /hive-config ]] && mkdir -p -m 777 /hive-config
+
+cp -r --no-clobber /hive/etc/hive-config.stub/* /hive-config/
+
+
+
+
+# Teleconsole env check ------------------------------------------------------------------------
+cat /root/.bashrc | grep -qE '^# Teleconsole required start v2$' ||
+(echo "Updating environment in /root/.bashrc for Teleconsole";
+sed -i '/^# Teleconsole required start/,/^# Teleconsole required end/d' /root/.bashrc #removing old version
+echo -e "# Teleconsole required start v2
+if [[ ! -z \$TELEPORT_SESSION ]]; then
+	source /etc/environment
+	export \$(cat /etc/environment | grep -vE \"^$|^#\" | cut -d= -f1)
+fi
+# Teleconsole required end" >> /root/.bashrc)
+
+
+
+# Ubuntu 18 fixes --------------------------------------------------------------------------------
+# fixing incorrect libcurl3 naming in 18.04.
+# can be removed after few updates after 0.5-74
+[[ -e /usr/lib/x86_64-linux-gnu/libcurl3.so.4.5.0 ]] && mv /usr/lib/x86_64-linux-gnu/libcurl3.so.4.5.0 /usr/lib/x86_64-linux-gnu/libcurl-compat.so.3.0.0
+[[ -L /usr/lib/x86_64-linux-gnu/libcurl3.so ]] && rm /usr/lib/x86_64-linux-gnu/libcurl3.so && ln -s /usr/lib/x86_64-linux-gnu/libcurl-compat.so.3.0.0 /usr/lib/x86_64-linux-gnu/libcurl-compat.so.3
+
+
+
+if (cat /etc/fstab | grep -q '^# LOGS OFF START$') && ! (cat /etc/systemd/journald.conf | grep -q '^Storage=volatile$'); then
+	# logs are OFF, let's fix persistent logs storage
+	echo "Fixing systemd-journald volatile storage"
+	sed -E 's/^[#]?Storage=.*$/Storage=volatile/g' -i /etc/systemd/journald.conf
+	systemctl restart systemd-journald #this will put logs to ram now
+	mount --bind / /mnt && rm -rf /mnt/var/log/* && umount /mnt
+fi
+
+
+
+# Save RepoVer ---------------------------------------------------------------------------------------
+# actually we should leave this only in selfupgrade
+# but when updating from 0.5 to 0.6 selfupgrade will not fetch this
+# remove this after the majority is on 0.6+ version
+/hive/bin/repover-touch
+
+exit 0

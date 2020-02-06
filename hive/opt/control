@@ -1,0 +1,8 @@
+Package: hive-opt
+Version: 0.6-cc-01
+Replaces: hive (<< 0.6)
+Section: base
+Priority: optional
+Architecture: all
+Maintainer: Bee <bee@hiveos.farm>
+Description: Hive OS optional tools

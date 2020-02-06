@@ -1,0 +1,7 @@
+# Hive default repository if server does not give any and for installation
+# DON'T EDIT, UPDATED FROM SERVER
+
+# CF
+deb http://rpirepo.hiveos.farm/repo/arm64 bionic main
+# Direct mirror
+#deb http://rpirepo2.hiveos.farm/repo/arm64 bionic main

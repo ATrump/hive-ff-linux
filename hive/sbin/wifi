@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+#Wifi setup script
+#Usage: wifi ssid pass
+
+[ -t 1 ] && . colors
+echo -e "${CYAN}=== WiFi setup ===${NOCOLOR}"
+
+
+[[ -z $1 && -z $2 ]] &&
+	interactive=1 ||
+	interactive=0
+
+[[ ! -t 1 && $interactive -eq 1 ]] &&
+	echo "Specify SSID and Password like 'wifi ssid pass' or run from shell for interactive mode" &&
+	exit 1
+
+WIFI_SSID=$1
+WIFI_PASSWORD=$2
+
+wificonfig=/hive-config/network/wifi.txt
+
+# check string `$0$!:^[]{}.*?\\a\/b//c|()%#@~'&\0;"
+function backslash() {
+        local var="${1//\\/\\\\}"
+        var="${var//\"/\\\"}"
+        var="${var//\`/\\\`}"
+        var="${var//\$/\\\$}"
+        echo "$var"
+}
+
+
+function wifi_info() {
+	iwconfig 2>&1 | grep -v "no wireless extensions" | grep -v -e '^$'
+	networkctl status $wlandev
+	echo
+}
+
+
+# Check packages
+installed=`dpkg -s wireless-tools | grep 'Status: .* ok installed' | wc -l`
+if [[ $installed == 0 ]]; then
+	apt-get install -y wireless-tools wpasupplicant
+	[[ $? > 0 ]] && echo "Error installing wireless-tools package" && exit 1
+fi
+
+installed=`dpkg -s wpasupplicant | grep 'Status: .* ok installed' | wc -l`
+if [[ $installed == 0 ]]; then
+	apt-get install -y wireless-tools wpasupplicant
+	[[ $? > 0 ]] && echo "Error installing wpasupplicant package" && exit 1
+fi
+
+
+wlandev=wlan0
+wifidev=`ifconfig ra0 2>/dev/null | grep ra0 | wc -l`
+if [[ $wifidev == 1 ]]; then
+	wlandev=ra0
+fi
+
+
+#Wifi setup from config
+if [[ $1 == "setup" && -z $2 ]]; then
+#	echo "..."
+#	iwconfig
+#	echo -e "...\n"
+#	ifconfig -a
+#	echo -e "...\n\n\n"
+
+
+	#If no config, then leave things as the are, maybe broken fs, then service and supplicant file will remain
+	[[ ! -e $wificonfig ]] &&
+		echo "No config found at $wificonfig" &&
+		exit 1
+
+
+	wlanCount=`iwconfig 2>&1 | grep $wlandev | wc -l`
+#	[[ -z $wlanCount || $wlanCount = 0 ]] &&
+#		echo -e "No ${YELLOW}$wlandev${NOCOLOR} interface found" &&
+#		wifi-disable && #or the service will wait for interface on boot
+#		exit 0
+
+
+
+	echo "### Found $wificonfig"
+	eval "`cat $wificonfig | tr -d '\r'`"
+
+	[[ -z $WIFI_SSID || -z $WIFI_PASSWORD ]] &&
+		echo "No SSID and password in WiFi config, exiting" &&
+		exit 0
+
+	echo "Found WIFI_SSID=$WIFI_SSID"
+
+	interactive=0
+	#wifi $WIFI_SSID $WIFI_PASSWORD
+	#just continue
+fi
+
+
+wlanCount=`iwconfig 2>&1 | grep $wlandev | wc -l`
+[[ -z $wlanCount || $wlanCount = 0 ]] &&
+		echo -e "No ${YELLOW}$wlandev${NOCOLOR} interface found" &&
+	echo -e "Please check drivers, try ${CYAN}lsusb${NOCOLOR} to check USB device is present" &&
+	exit 1
+
+
+# bring up interface if it is down
+up=`ifconfig $wlandev up 2>&1`
+[[ $? -ne 0 ]] && echo -e "${RED}Failed to bring up $wlandev:$NOCOLOR $up\n"
+
+
+# just to display
+wifi_info
+
+
+[[ -z $WIFI_SSID || -z $WIFI_PASSWORD ]] &&
+while true; do
+	rescan=0
+	ssids=("[CUSTOM SSID]" "[RESCAN NETWORKS]")
+	echo -en "${CYAN}Scanning networks...$NOCOLOR"
+	_IFS=$IFS; IFS=$'\n'
+	#ssids+=(`iw $wlandev scan 2>/dev/null | grep "SSID:" | awk -F ": " '{print $2}' | sort -u `)
+	ssids+=(`iwlist $wlandev scanning 2>/dev/null | grep -oP "ESSID:\"\K[^\"]+(?=\")" | sort -u `)
+	IFS=$_IFS
+	echo -e "$CYAN found $(( ${#ssids[@]} - 2 )) $NOCOLOR"
+	#if [[ ${#ssids[@]} -gt 2 ]]; then
+		# convert \xNN codes to symbols
+		for((i=2; i < ${#ssids[@]}; i++)); do
+			ssids[$i]=`echo -e "${ssids[$i]}"`
+		done
+		echo -e "${YELLOW}Select Access Point:${NOCOLOR}"
+		select WIFI_SSID in "${ssids[@]}"; do
+			[[ -z $WIFI_SSID ]] && continue
+			if [[ $REPLY -eq 1 ]]; then
+				WIFI_SSID=
+			elif [[ $REPLY -eq 2 ]]; then
+				rescan=1
+			else
+				echo -e "SSID: $WHITE$WIFI_SSID$NOCOLOR"
+			fi
+			break
+		done
+		[[ $rescan -eq 1 ]] && continue
+	#fi
+
+	if [[ -z $WIFI_SSID ]]; then
+		echo -e "${YELLOW}Enter your Access Point details${NOCOLOR}"
+		echo -n "SSID: "
+		read -r WIFI_SSID
+		[[ -z $WIFI_SSID ]] && echo "Empty value" && continue
+	fi
+
+	echo -n "Password: "
+	read -r WIFI_PASSWORD
+	[[ -z $WIFI_PASSWORD ]] && echo "Empty value" && continue
+	[[ ${#WIFI_PASSWORD} -lt 8 ]] && echo "Must be at least 8 characters" && continue
+	break
+done
+
+
+wpa_passphrase "$WIFI_SSID" "$WIFI_PASSWORD" | tee /etc/wpa_supplicant/wpa_supplicant.conf
+echo -e "${YELLOW}Saved to /etc/wpa_supplicant/wpa_supplicant.conf${NOCOLOR}"
+
+systemctl is-enabled wpa_supplicant@$wlandev > /dev/null
+[[ $? == 1 ]] && systemctl enable wpa_supplicant@$wlandev #if the service exists and is enabled, do nothing
+#we need to start it or network-online.target will wait for it, enable is not enough
+systemctl restart wpa_supplicant@$wlandev
+
+if [[ $interactive == 1 ]]; then
+
+	#Create config file from input
+	mkdir -p /hive-config/network
+	cp -f /hive/etc/hive-config.stub/network/wifi.txt $wificonfig
+
+	#sed -i "s/^WIFI_SSID=.*/WIFI_SSID=\"$WIFI_SSID\"\r/g" $wificonfig
+	#sed -i "s/^WIFI_PASSWORD=.*/WIFI_PASSWORD=\"$WIFI_PASSWORD\"\r/g" $wificonfig
+
+	# remove ssid and password
+	sed -i "/^WIFI_/d" $wificonfig
+
+	# add backslashed
+	echo "WIFI_SSID=\"$(backslash "$WIFI_SSID")\"" >> $wificonfig
+	echo "WIFI_PASSWORD=\"$(backslash "$WIFI_PASSWORD")\"" >> $wificonfig
+
+	#sleep 4 #to wait for dhcp
+	#ifconfig | grep -m1 -A1 $wlandev
+	#ip addr show $wlandev
+	echo -n "State:"
+	for((i=0;i<10;i++)); do
+		state=`networkctl status $wlandev | grep -oP "State: \K.*(?= \()"`
+		echo -n " $state"
+		[[ $state == "routable" ]] && break
+		sleep 1
+	done
+
+	echo
+	wifi_info
+	
+	[[ $state == "routable" ]] &&
+		echo -e "${GREEN}WiFi setup done. Connected to network${NOCOLOR}" ||
+		echo -e "${RED}WiFi setup done. No connection. Check settings and try again${NOCOLOR}"
+
+	echo -e "If you will not use WiFi please disable service later with command ${CYAN}wifi-disable${NOCOLOR}"
+
+fi
+
+
+
