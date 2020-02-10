@@ -25,43 +25,7 @@ EOF
 
 echo -e "$msg"
 
-# old "classic" motd
-if [[ $1 == "old" ]]; then
-	echo -en `uname -sr`
-	echo -e "   ${YELLOW}H `dpkg -s hive | grep '^Version: ' | sed 's/Version: //'`${NOCOLOR}"
-
-	echo -e ${CYAN}`hostname`${NOCOLOR}
-
-	echo -ne ${PURPLE}
-	#ifconfig | grep -v "127.0.0.1" | grep "inet addr" | sed -E 's/^[[:space:]]+//'
-	ip addr show | grep -v "127.0.0.1" | grep "inet .*/" | sed -E 's/^[[:space:]]+//'
-	echo -e "${NOCOLOR}"
-
-	df -h /
-
-	echo ""
-
-	uptime
-
-	echo  ""
-
-	#echo "AMD GPU: `/hive/sbin/gpu-detect AMD`"
-	#echo "NVIDIA GPU: `/hive/sbin/gpu-detect NVIDIA`"
-	#echo ""
-
-	/hive/sbin/gpu-detect list
-
-	echo ""
-
-	helpme
-
-	echo ""
-	exit
-fi
-
-
 set -o pipefail
-
 
 SEP=" · "
 
@@ -203,10 +167,10 @@ net_info() {
 			color=$BPURPLE
 		fi
 		echo -en "  $color$state$NOCOLOR"
-		dns=`grep -Pazo "DNS: \K[0-9\.\s]+" <<< "$nstat" | tr '\n' ' ' | awk '{$1=$1};1'`
-		ips=`grep -Pazo "  Address: \K[0-9\.\s]+" <<< "$nstat" | tr '\n' ' ' | awk '{$1=$1};1'`
-		gw=`grep -Pazo " Gateway: \K[0-9\.\s]+" <<< "$nstat" | tr '\n' ' ' | awk '{$1=$1};1'`
-		driver=`grep "Driver:" <<< "$nstat" | awk -F ': ' '{print $2}'`
+		dns=`echo "$nstat" | tr '\0' '\n' | grep -Pazo "DNS: \K[0-9\.\s]+" ` # | tr '\n' ' '` # | awk '{$1=$1};1'`
+		ips=`tr -d '\0'  <<< "$nstat" | grep -Pazo "  Address: \K[0-9\.\s]+" | tr '\n' ' ' | awk '{$1=$1};1'`
+		gw=`tr -d '\0'  <<< "$nstat" | grep -Pazo " Gateway: \K[0-9\.\s]+" | tr '\n' ' ' | awk '{$1=$1};1'`
+		driver=`tr -d '\0'  <<< "$nstat" | grep "Driver:" | awk -F ': ' '{print $2}'`
 		[[ ! -z $ips ]] && echo -en "  ip $WHITE$ips$NOCOLOR"
 		[[ ! -z $gw ]] && echo -en "  gw $WHITE$gw$NOCOLOR"
 		[[ ! -z $dns ]] && echo -en "  dns $WHITE$dns$NOCOLOR"
@@ -214,20 +178,6 @@ net_info() {
 		echo ""
 	done
 
-#● 2: eth0
-#       Link File: /lib/systemd/network/99-default.link
-#    Network File: /etc/systemd/network/20-ethernet.network
-#            Type: ether
-#           State: routable (configured)
-#            Path: pci-0000:00:1f.6
-#          Driver: e1000e
-#          Vendor: Intel Corporation
-#           Model: Ethernet Connection (2) I219-V
-#      HW Address: 70:85:c2:71:3b:84 (ASRock Incorporation)
-#         Address: 192.168.1.6
-#         Gateway: 192.168.1.1
-#             DNS: 192.168.1.1
-#                  1.1.1.1
 }
 
 
@@ -429,13 +379,6 @@ gpu_compact() {
 	return 0
 }
 
-
-miners_info() {
-	local scr=`sudo screen -S miner -Q windows`
-	echo -e "Miners: $WHITE${scr//(L)/ -}$NOCOLOR"
-}
-
-
 add_help() {
 	local -n var=$1
 	output+=`printf '\n%b%15s%b · %b' "$WHITE" "$2" "$NOCOLOR" "$3"`
@@ -453,12 +396,6 @@ show_log() {
 	local color=$DGRAY
 	local running=1
 	local output=" "
-	if ! screen -S miner -Q windows > /dev/null; then
-		[[ $screen != "0" && $screen != "9" ]] &&
-			output="${color}=${RED} [ $WHITE$screen$RED No miners are running ] ${NOCOLOR}" ||
-			output="${color}=${RED} ${WHITE}1-8$RED No miners are running ${NOCOLOR}"
-		running=0
-	fi
 	for((i=1;i<=11;i++)); do
 		local tab=$i
 		if [[ $i -eq 8 ]]; then
@@ -570,21 +507,6 @@ function show_top() {
 }
 
 
-function show_gpu() {
-	echo
-	gpu_info || gpu-detect list
-}
-
-
-function show_bottom() {
-	echo
-	miners_info
-	echo
-	unbuffer helpme
-	echo
-}
-
-
 function motd_watch() {
 	# prevent running from scripts
 	[ ! -t 1 ] && return 1
@@ -667,7 +589,6 @@ function motd_watch() {
 
 	clear
 	echo -n "$header"
-	show_bottom
 	return 0
 }
 
@@ -680,7 +601,5 @@ if [[ $1 == "watch" ]]; then
 fi
 
 show_top
-show_gpu
-show_bottom
 
 exit 0
