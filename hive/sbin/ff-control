@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+
+#Must be empty in release
+DEBUG_COMMANDS=
+VERS="0.1.0"
+
+################################################################################
+#settings (for rof_fc.conf without DEF_), default values
+
+DEF_FAN_1_IN_PORT=a
+DEF_FAN_2_IN_PORT=b
+DEF_FAN_3_IN_PORT=c
+DEF_FAN_4_IN_PORT=d
+DEF_FAN_5_IN_PORT=e
+DEF_FAN_6_IN_PORT=f
+DEF_FANS_SPEED_OUT_PORT=g
+DEF_FLAPS_OUT_PORT=h
+
+DEF_TEMP_VARIATION=1
+
+DEF_TARGET_TEMP=25
+DEF_MIN_SPEED=0
+DEF_MAX_SPEED=100
+
+DEF_SLEEP_TIME=10
+
+if [[ -z $FF_CONF ]]; then #reread env variables as after upgrade this can be empty
+  source /etc/environment
+  export $(cat /etc/environment | grep -vE '^$|^#' | cut -d= -f1) #export all variables from file
+fi
+
+. colors
+. /hive-config/rig.conf
+
+TF_ENUMERATE=/run/hive/tf_enumerate
+
+FAN_1_IN_PORT=
+FAN_2_IN_PORT=
+FAN_3_IN_PORT=
+FAN_4_IN_PORT=
+FAN_5_IN_PORT=
+FAN_6_IN_PORT=
+FANS_SPEED_OUT_PORT=
+FLAPS_OUT_PORT=
+
+FAN_1_IN_UID=
+FAN_2_IN_UID=
+FAN_3_IN_UID=
+FAN_4_IN_UID=
+FAN_5_IN_UID=
+FAN_6_IN_UID=
+FANS_SPEED_OUT_UID=
+FLAPS_OUT_UID=
+
+TARGET_TEMP=
+MIN_SPEED=
+MAX_SPEED=
+
+SLEEP_TIME=
+
+################################################################################
+
+load_def_values () {
+  [[ -f $FF_CONF ]] && source $FF_CONF
+
+  [[ -z $FAN_1_IN_PORT ]] && FAN_1_IN_PORT=$DEF_FAN_1_IN_PORT
+  [[ -z $FAN_2_IN_PORT ]] && FAN_2_IN_PORT=$DEF_FAN_2_IN_PORT
+  [[ -z $FAN_3_IN_PORT ]] && FAN_3_IN_PORT=$DEF_FAN_3_IN_PORT
+  [[ -z $FAN_4_IN_PORT ]] && FAN_4_IN_PORT=$DEF_FAN_4_IN_PORT
+  [[ -z $FAN_5_IN_PORT ]] && FAN_5_IN_PORT=$DEF_FAN_5_IN_PORT
+  [[ -z $FAN_6_IN_PORT ]] && FAN_6_IN_PORT=$DEF_FAN_6_IN_PORT
+  [[ -z $FANS_SPEED_OUT_PORT ]] && FANS_SPEED_OUT_PORT=$DEF_FANS_SPEED_OUT_PORT
+  [[ -z $FLAPS_OUT_PORT ]] && FLAPS_OUT_PORT=$DEF_FLAPS_OUT_PORT
+
+  [[ -z $TARGET_TEMP ]] && TARGET_TEMP=$DEF_TARGET_TEMP
+  [[ -z $MIN_SPEED ]] && MIN_SPEED=$DEF_MIN_SPEED
+  [[ -z $MAX_SPEED ]] && MAX_SPEED=$DEF_MAX_SPEED
+
+  [[ -z $SLEEP_TIME ]] && SLEEP_TIME=$DEF_SLEEP_TIME
+
+  [[ ! -f $TF_ENUMERATE ]] && tinkerforge enumerate >> $TF_ENUMERATE
+}
+
+get_uids () {
+  FAN_1_IN_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FAN_1_IN_PORT" | head -1 | cut -d "=" -f 2`;
+  FAN_2_IN_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FAN_2_IN_PORT" | head -1 | cut -d "=" -f 2`;
+  FAN_3_IN_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FAN_3_IN_PORT" | head -1 | cut -d "=" -f 2`;
+  FAN_4_IN_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FAN_4_IN_PORT" | head -1 | cut -d "=" -f 2`;
+  FAN_5_IN_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FAN_5_IN_PORT" | head -1 | cut -d "=" -f 2`;
+  FAN_6_IN_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FAN_6_IN_PORT" | head -1 | cut -d "=" -f 2`;
+  FANS_SPEED_OUT_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FANS_SPEED_OUT_PORT" | head -1 | cut -d "=" -f 2`;
+  FLAPS_OUT_UID=`cat $TF_ENUMERATE | grep -B2 "position=$FLAPS_OUT_PORT" | head -1 | cut -d "=" -f 2`;
+}
+
+set_analog_out_v () {
+  tinkerforge call analog-out-v3-bricklet $1 set-output-voltage $2
+}
+
+set_fans_speed () {
+  echo "Setting speed to $(($1*12000/100))"
+  #set_analog_out_v $FANS_SPEED_OUT_UID $(($1*12000/100))
+}
+
+set_flaps_position () {
+  echo "setting position to $(($1*12000/100))"
+  #set_analog_out_v $FLAPS_OUT_UID $(($1*12000/100))
+}
+
+get_avr_temp () {
+  local rigs_count=`wc -l $FF_SNMP_OUTPUT | awk '{print $1}'`
+  [[ $rigs_count -eq 0 ]] && return 1
+  local rigs_used=$(($rigs_count / 5))
+  [[ $rigs_used -eq 0 ]] && rigs_used=1
+  sort $FF_SNMP_OUTPUT -k2 | tail -n $rigs_used | awk '{s+=$2} END {print s/'$rigs_used'}'
+  return 0
+}
+
+ff_control () {
+  local target_speed=0;
+
+  . $FF_CONF
+
+  while true; do
+    local cur_temp=`get_avr_temp`
+    if [[ $? -ne 0  ]]; then target_speed=50 #no stats from rigs, set speed to 50%
+    else
+      if [[ ! -z $prev_temp && $prev_temp -ne 0 ]]; then
+        if [[ $(($cur_temp - $TARGET_TEMP)) -gt $DEF_TEMP_VARIATION ]]; then
+          if [[ $cur_temp -gt $prev_temp ]]; then
+            ((target_speed=$current_speed + ($cur_temp - $TARGET_TEMP - 1)))
+          elif [[ $cur_temp -lt $prev_temp ]]; then
+            ((target_speed=$current_speed - 1))
+          else
+            target_speed=$current_speed
+          fi
+        else
+          if [[ $(($TARGET_TEMP - $cur_temp)) -gt 3 ]]; then
+            ((target_speed=$current_speed + ($cur_temp - $TARGET_TEMP)))
+          elif [[ $a_temp -gt $prev_temp ]]; then
+            ((target_speed=$current_speed + ($cur_temp - $prev_temp - 1)))
+          elif [[ $a_temp -lt $prev_temp ]]; then
+            ((target_speed=$current_speed - 1))
+          else
+            target_speed=$current_speed
+          fi
+        fi
+      fi
+    fi
+
+    [[ $target_speed -gt $MAX_SPEED ]] && target_speed=$MAX_SPEED
+    [[ $target_speed -lt $MIN_SPEED ]] && target_speed=$MIN_SPEED
+
+    set_fans_speed $target_speed
+    set_flaps_position $(( 100 - $target_speed ))
+
+    current_speed=$target_speed
+    prev_temp=$cur_temp
+
+    sleep $SLEEP_TIME
+  done
+}
+
+function stop() {
+	screens=`screen -ls ff-control | grep -E "[0-9]+\.ff-control" | cut -d. -f1 | awk '{print $1}'`
+	if [[ -z $screens ]]; then
+		echo "No ff-control screens found"
+		return 1
+	fi
+	for pid in $screens; do
+		echo "Stopping ff-control screen session $pid"
+		screen -S $pid.ff-control -X quit
+	done
+	return 0
+}
+
+print_help () {
+  echo -e "${CYAN}Hive Fans & Flaps Controller v$VERS"
+  echo -e "${WHITE}This tool is used to control ROH fans and flaps."
+  echo
+  echo -e "${YELLOW}Usage:"
+  echo -e "\t${CYAN}ff-control parameter [value]"
+  echo
+  echo -e "${YELLOW}Examples of usage:${NOCOLOR}"
+  echo -e "\t${CYAN}ff-control                                     ${LGRAY}- show ff-control main loop ${NOCOLOR}"
+  echo -e "\t${CYAN}ff-control start                               ${LGRAY}- start ff-control main loop ${NOCOLOR}"
+  echo -e "\t${CYAN}ff-control --get_fans_speed | -gfs             ${LGRAY}- print current fans speed ${NOCOLOR}"
+  echo -e "\t${CYAN}ff-control --set_fans_speed | -sfs value       ${LGRAY}- set fans speed to value in percent ${NOCOLOR}"
+  echo -e "\t${CYAN}ff-control --set_flaps_position | -sfp value   ${LGRAY}- set flaps position to value in percent ${NOCOLOR}"
+  echo -e "\t${CYAN}ff-control --help | -h         ${LGRAY}- print this help ${NOCOLOR}"
+}
+
+load_def_values
+get_uids
+
+case $1 in
+  "--help","-h" )
+    print_help
+    ;;
+  "set_fans_speed","-sfs" )
+    set_fans_speed $2
+    ;;
+  "start" )
+    session_count=`screen -ls ff-control | grep ff-control | wc -l`
+    if [[ $session_count -gt 0 ]]; then
+      echo "ff-control already started"
+    else #start new screen
+      echo "> Starting ff-control"
+
+      screen -dm -S ff-control $0 run
+      echo "ff-control screen started"
+    fi
+    ;;
+  "" )
+    session_count=`screen -ls ff-control | grep ff-control | wc -l`
+    if [[ $session_count -gt 0 ]]; then
+      screen -x -S ff-control
+    else
+      echo -e "No ff-screen found. Use ${CYAN}ff-control start${NOCOLOR} to start new one."
+    fi
+    ;;
+  "run" )
+    ff_control
+    ;;
+  "stop" )
+    stop
+    ;;
+  * )
+    print_help
+    ;;
+esac

@@ -10,7 +10,8 @@ RIG_CONF=/hive-config/rig.conf
 OCTOFAN_CONF=/hive-config/octofan.conf
 OCTOFAN=/hive/opt/octofan/octofan
 
-HIVE_FF_CONF=/hive-config/HIVE_FF.conf
+FF_CONF=/hive-config/ff.conf
+FF_SNMP_OUTPUT="/run/hive/ff-snmp.list"
 
 VNC_PASSWD=/hive-config/vnc-password.txt
 

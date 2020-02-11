@@ -2,12 +2,16 @@
 # Executes gpu-stats and stores it to file
 # Runs inside screen with agent
 
-TEMP_OUTPUT="/tmp/h-snmp.list"
-OUTPUT="/run/hive/h-snmp.list"
+TEMP_OUTPUT="/tmp/ff-snmp.list"
 INTERVAL=10 #seconds
 MAX_IP_LIST_AGE=60 #seconds
 
-h-snmp-control () {
+if [[ -z $FF_SNMP_OUTPUT ]]; then #reread env variables as after upgrade this can be empty
+  source /etc/environment
+  export $(cat /etc/environment | grep -vE '^$|^#' | cut -d= -f1) #export all variables from file
+fi
+
+ff-snmp-control () {
 	#get default interface
 	default_if=$(ip route list | awk '/^default/ {print $5}')
 	echo "Default network interface=$default_if"
@@ -45,13 +49,13 @@ h-snmp-control () {
 	    echo "Sending request to $t_ip"
 	    t_response=`snmpwalk -r 1 -v 2c -c public $t_ip .1.3.6.1.4.1.2021.8 | grep ".4.1.2.2.100.102.1 = STRING: " | awk '{print $4}' | tr -d '"'`
 	    [[ ! -z $t_response ]] && echo "t=${t_response}°C"
-	    if [[ ! -z $t_response ]]; then
-	      echo "$t_ip $t_response" >> $TEMP_OUTPUT
-	    fi
+	    #if [[ ! -z $t_response ]]; then
+	    echo "$t_ip $t_response" >> $TEMP_OUTPUT
+	    #fi
 	  done
 	cat $TEMP_OUTPUT
 	  #copy temporary output to output
-	  [[ -s $TEMP_OUTPUT ]] && cp $TEMP_OUTPUT $OUTPUT
+	  [[ -s $TEMP_OUTPUT ]] && cp $TEMP_OUTPUT $FF_SNMP_OUTPUT
 
 		time_finish=`date +%s`
 		wasted=$(( $time_finish - $time_start ))
@@ -69,23 +73,27 @@ h-snmp-control () {
 	done
 }
 
-if [[ $1 == "dontattach" ]]; then
-	session_count=`screen -ls h-snmp | grep h-snmp | wc -l`
-	if [[ $session_count -eq 0 ]]; then
-		echo "> Starting h-snmp"
-		#start new screen
-		screen -dm -S h-snmp $0 start
-		echo "h-snmp screen started"
-	fi
-elif [[ $1 == "" ]]; then
-	session_count=`screen -ls h-snmp | grep h-snmp | wc -l`
-	if [[ $session_count -gt 0 ]]; then
-		screen -x -S h-snmp
-	else #start new screen
-		echo "> Starting h-snmp"
-		screen -dm -S h-snmp $0 start
-		echo "h-snmp screen started"
-	fi
-elif [[ $1 == "start" ]]; then
-  h-snmp-control
-fi
+case $1 in
+  "start" )
+  	session_count=`screen -ls ff-snmp | grep ff-snmp | wc -l`
+  	if [[ $session_count -eq 0 ]]; then
+  		echo "> Starting ff-snmp"
+  		#start new screen
+  		screen -dm -S ff-snmp $0 run
+  		echo "ff-snmp screen started"
+    else
+      echo "ff-snmp screen already started"
+  	fi
+    ;;
+  "" )
+  	session_count=`screen -ls ff-snmp | grep ff-snmp | wc -l`
+  	if [[ $session_count -gt 0 ]]; then
+  		screen -x -S ff-snmp
+  	else #start new screen
+  		echo "No ff-snmp screen found. Use \"start\" param to start new one."
+  	fi
+    ;;
+  "run" )
+    ff-snmp-control
+    ;;
+esac

@@ -6,7 +6,7 @@
 
 # the default umask is set in /etc/profile; for setting the umask
 # for ssh logins, install and configure the libpam-umask package.
-#umask 022
+# umask 022
 
 # if running bash
 if [ -n "$BASH_VERSION" ]; then
@@ -27,6 +27,35 @@ if [ -d "$HOME/.local/bin" ] ; then
 fi
 
 export PATH
+
+if [[ -e /hive-config/branding-logo.txt ]]; then
+  BRANDING_LOGO=$(cat /hive-config/branding-logo.txt; echo .) #echo . to preserve new lines
+  BRANDING_LOGO=${BRANDING_LOGO%.} #remove last .
+elif [[ -e /hive/etc/branding-logo.txt ]]; then
+  BRANDING_LOGO=$(cat /hive/etc/branding-logo.txt; echo .) #echo . to preserve new lines
+  BRANDING_LOGO=${BRANDING_LOGO%.} #remove last .
+else
+  BRANDING_LOGO="${BYELLOW}
+ _______ _______ ___ ___ _______   ________ ________
+|   |   |_     _|   |   |    ___| |   ____/|   ____/
+|       |_|   |_|   |   |    ___| |   |__/ |   |__/
+|___|___|_______|\_____/|_______| |___|    |___|
+
+"
+fi
+BRANDING_LOGO="${BRANDING_LOGO}${NOCOLOR}"
+
+msg=$(cat <<EOF
+$uname
+${BRANDING_LOGO}
+${CYAN}`hostname`${NOCOLOR}
+${BPURPLE}`hostname -I`${NOCOLOR}
+
+EOF
+)
+
+echo -e "$msg"
+
 
 motd
 
