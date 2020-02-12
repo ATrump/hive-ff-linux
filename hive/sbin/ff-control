@@ -30,7 +30,7 @@ if [[ -z $FF_CONF ]]; then #reread env variables as after upgrade this can be em
 fi
 
 . colors
-. /hive-config/rig.conf
+. $FF_CONF
 
 TF_ENUMERATE=/run/hive/tf_enumerate
 
@@ -61,6 +61,7 @@ SLEEP_TIME=
 ################################################################################
 
 load_def_values () {
+  echo "Loading settings from $FF_CONF"
   [[ -f $FF_CONF ]] && source $FF_CONF
 
   [[ -z $FAN_1_IN_PORT ]] && FAN_1_IN_PORT=$DEF_FAN_1_IN_PORT
@@ -116,32 +117,34 @@ get_avr_temp () {
 }
 
 ff_control () {
-  local target_speed=0;
-
-  . $FF_CONF
+  local target_speed=0; local echo_temp=; local echo_fan=
+  local cur_speed=0;
 
   while true; do
+    . $FF_CONF
+
     local cur_temp=`get_avr_temp`
     if [[ $? -ne 0  ]]; then target_speed=50 #no stats from rigs, set speed to 50%
     else
-      if [[ ! -z $prev_temp && $prev_temp -ne 0 ]]; then
+      if [[ ! -z $prev_temp ]]; then
         if [[ $(($cur_temp - $TARGET_TEMP)) -gt $DEF_TEMP_VARIATION ]]; then
           if [[ $cur_temp -gt $prev_temp ]]; then
-            ((target_speed=$current_speed + ($cur_temp - $TARGET_TEMP - 1)))
+            ((target_speed=$cur_speed + ($cur_temp - $TARGET_TEMP - 1)))
+            echo "Speed $cur_speed -> $target_speed "
           elif [[ $cur_temp -lt $prev_temp ]]; then
-            ((target_speed=$current_speed - 1))
+            ((target_speed=$cur_speed - 1))
           else
-            target_speed=$current_speed
+            target_speed=$(($cur_speed + 1))
           fi
         else
           if [[ $(($TARGET_TEMP - $cur_temp)) -gt 3 ]]; then
-            ((target_speed=$current_speed + ($cur_temp - $TARGET_TEMP)))
+            ((target_speed=$cur_speed + ($cur_temp - $TARGET_TEMP)))
           elif [[ $a_temp -gt $prev_temp ]]; then
-            ((target_speed=$current_speed + ($cur_temp - $prev_temp - 1)))
+            ((target_speed=$cur_speed + ($cur_temp - $prev_temp - 1)))
           elif [[ $a_temp -lt $prev_temp ]]; then
-            ((target_speed=$current_speed - 1))
+            ((target_speed=$cur_speed - 1))
           else
-            target_speed=$current_speed
+            target_speed=$cur_speed
           fi
         fi
       fi
@@ -150,12 +153,31 @@ ff_control () {
     [[ $target_speed -gt $MAX_SPEED ]] && target_speed=$MAX_SPEED
     [[ $target_speed -lt $MIN_SPEED ]] && target_speed=$MIN_SPEED
 
+    echo_temp="$cur_temp°C"
+    [[ $cur_temp -gt $TARGET_TEMP ]] &&
+      echo_temp="${YELLOW}$cur_temp°C${NOCOLOR}"
+    [[ $cur_temp -lt $TARGET_TEMP ]] &&
+      echo_temp="${GREEN}$cur_temp°C${NOCOLOR}"
+    [[ $(($cur_temp - $TARGET_TEMP)) -ge 5 ]] &&
+      echo_temp="${RED}$cur_temp°C${NOCOLOR}"
+
+    echo_fan="$target_speed%"
+  	[[ $target_speed -gt $cur_speed ]] &&
+  		echo_fan="${YELLOW}$target_speed% ↑${NOCOLOR}"
+  	[[ $target_speed -lt $cur_speed ]] &&
+  		echo_fan="${GREEN}$target_speed% ↓${NOCOLOR}"
+  	[[ $target_speed -eq $MAX_SPEED ]] &&
+  		echo_fan="${RED}$target_speed%${NOCOLOR}"
+
+    echo -e "$echo_temp $cur_speed $echo_fan ($TARGET_TEMP°C)"
+
     set_fans_speed $target_speed
     set_flaps_position $(( 100 - $target_speed ))
 
-    current_speed=$target_speed
+    cur_speed=$target_speed
     prev_temp=$cur_temp
 
+    echo "Sleeping $SLEEP_TIME seconds"
     sleep $SLEEP_TIME
   done
 }
