@@ -42,33 +42,8 @@ curl --help | grep -q ssl-session-file && [[ ! -z $SSL_SESSION_FILE ]] &&
 	ssl_session="--ssl-session-file $SSL_SESSION_FILE" ||
 	ssl_session=""
 
-
-function process_gpu_detect_json() {
-	#{"temp":["61","42","41"],"fan":["92","0","0"],"load":["92","0","0"],"busids":["01:00.0","03:00.0","05:00.0"]}
-	#Nvidia indexes in aa [1,2,3] to use in jsons
-	#nvidia_indexes=echo "$gpu_stats" | jq '.brand | to_entries[] | select(.value == "nvidia") | .key' | jq -sc '.'
-	#nvidia_indexes=`gpu-detect listjson | jq '. | to_entries[] | select(.value.brand == "nvidia") | .key' | jq -sc '.'`
-	#gpu_detect_json=`gpu-detect listjson`
-
-
-	if [[ $1 == "redetect" || ! -e $GPU_DETECT_JSON ]]; then #this is needed only when upgrading version. later we can remove this
-		gpu-detect listjson > $GPU_DETECT_JSON
-	fi
-	gpu_detect_json=`cat $GPU_DETECT_JSON`
-	[[ -z $gpu_detect_json ]] &&
-		echo "gpu_detect_json was empty after reading" > /run/hive/agent-no-gpu-detect
-	amd_indexes_array=$(jq -c '[ . | to_entries[] | select(.value.brand == "amd") | .key ]' <<< "$gpu_detect_json")
-	nvidia_indexes_array=$(jq -c '[ . | to_entries[] | select(.value.brand == "nvidia") | .key ]' <<< "$gpu_detect_json")
-	cpu_indexes_array=$(jq -c '[ . | to_entries[] | select(.value.brand == "cpu") | .key ]' <<< "$gpu_detect_json")
-}
-
 # sanitize functions are used to prepare stats values for backend '
 . sanitize
-
-gpu_stats=
-gpu_detect_json=
-
-process_gpu_detect_json
 
 ########################################################################################################################
 
@@ -139,7 +114,7 @@ function loop {
 	AGENT_GZIP=0
 	PUSH_INTERVAL=10
 	. $RIG_CONF
-	. $WALLET_CONF
+	
 
 	# stop using claymore as default
 	#[[ -z $MINER ]] && MINER="claymore"
