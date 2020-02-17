@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Gets power meter statistics over http
+# Runs inside screen, starts by ff-control
+
+TEMP_OUTPUT="/tmp/ff-pm.html"
+INTERVAL=10 #seconds
+
+if [[ -z $FF_PM_OUTPUT ]]; then #reread env variables as after upgrade this can be empty
+  source /etc/environment
+  export $(cat /etc/environment | grep -vE '^$|^#' | cut -d= -f1) #export all variables from file
+fi
+
+ff-pm-control () {
+  local pm_url=; local pm_user=; local pm_pass=;
+
+  while true; do
+    date
+
+    time_start=`date +%s`
+
+    . $FF_CONF
+    #PM1_URL=; PM1_USER=; PM1_PASS=; #PM2_URL=; PM2_USER=; PM2_PASS=;
+    local p1=; local p2=; local p3=; local p_total=; local e_total=;
+    local ff_stats=; local t_stats=;
+
+    for i in {1..2}; do
+      eval "pm_url=\$PM${i}_URL"
+      eval "pm_user=\$PM${i}_USER"
+      eval "pm_pass=\$PM${i}_PASS"
+
+      stats_raw=`curl --user $pm_user:$pm_pass -L $pm_url | html2text`
+      p1=`echo stats_raw | grep 'P1 ' | grep 'kW' | awk '{print $9}'`
+      [[ -z $p1 ]] && p1=null
+      p2=`echo stats_raw | grep 'P1 ' | grep 'kW' | awk '{print $9}'`
+      [[ -z $p2 ]] && p2=null
+      p3=`echo stats_raw | grep 'P1 ' | grep 'kW' | awk '{print $9}'`
+      [[ -z $p3 ]] && p3=null
+      p_total=`echo stats_raw | grep 'P total ' | grep 'kW' | awk '{print $10}'`
+      [[ -z $p_total ]] && p_total=null
+      stats_raw=`curl --user $pm_user:$pm_pass -L $pm_url/energy.shtml | html2text`
+      e_total=`echo stats_raw | grep 'Total' | grep 'kWh' | awk '{print $4}'
+      [[ -z $e_total ]] && e_total=null
+
+      t_stats='{"p'$i'":['$p1', '$p2', '$p3'], "p'$i'_total":'$p_total', "e'$i'_total":'$e_total'}'
+
+      ff_stats=$(jq -s '.[0] * .[1]' <<< "$stats $t_stats")
+    done
+
+    #copy temporary output to output
+    [[ -s $TEMP_OUTPUT ]] && cp $TEMP_OUTPUT $FF_SNMP_OUTPUT
+
+    time_finish=`date +%s`
+    wasted=$(( $time_finish - $time_start ))
+
+    echo "$wasted seconds snmp reading"
+    echo ""
+
+    tosleep=$(( $INTERVAL - $wasted ))
+
+    #echo "Sleeping $tosleep"
+    if [[ $tosleep -ge 0 ]]; then
+      #sleep $INTERVAL
+      read -t $tosleep
+    fi
+done
+}
+
+case $1 in
+  "start" )
+  	session_count=`screen -ls ff-snmp | grep ff-snmp | wc -l`
+  	if [[ $session_count -eq 0 ]]; then
+  		echo "> Starting ff-snmp"
+  		#start new screen
+  		screen -dm -S ff-snmp $0 run
+  		echo "ff-snmp screen started"
+    else
+      echo "ff-snmp screen already started"
+  	fi
+    ;;
+  "" )
+  	session_count=`screen -ls ff-snmp | grep ff-snmp | wc -l`
+  	if [[ $session_count -gt 0 ]]; then
+  		screen -x -S ff-snmp
+  	else #start new screen
+  		echo "No ff-snmp screen found. Use \"start\" param to start new one."
+  	fi
+    ;;
+  "run" )
+    ff-snmp-control
+    ;;
+esac
