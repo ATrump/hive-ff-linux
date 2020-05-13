@@ -28,10 +28,10 @@ fi
 
 export PATH
 
-if [[ -e /hive-config/branding-logo.txt ]]; then
+if [ -e /hive-config/branding-logo.txt ]; then
   BRANDING_LOGO=$(cat /hive-config/branding-logo.txt; echo .) #echo . to preserve new lines
   BRANDING_LOGO=${BRANDING_LOGO%.} #remove last .
-elif [[ -e /hive/etc/branding-logo.txt ]]; then
+elif [ -e /hive/etc/branding-logo.txt ]; then
   BRANDING_LOGO=$(cat /hive/etc/branding-logo.txt; echo .) #echo . to preserve new lines
   BRANDING_LOGO=${BRANDING_LOGO%.} #remove last .
 else
@@ -54,9 +54,9 @@ ${BPURPLE}`hostname -I`${NOCOLOR}
 EOF
 )
 
-echo -e "$msg"
+echo "$msg"
 
 
 motd
 
-sudo -s
+exec sudo /bin/bash

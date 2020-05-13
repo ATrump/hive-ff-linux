@@ -1,7 +1,7 @@
 Package: hive-lib
-Version: 0.6-cc-01
+Version: 0.6-ff-001
 Section: base
 Priority: optional
 Architecture: all
 Maintainer: Bee <bee@hiveos.farm>
-Description: Hive CC shared libs
+Description: Hive FF shared libs

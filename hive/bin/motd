@@ -167,9 +167,9 @@ net_info() {
 			color=$BPURPLE
 		fi
 		echo -en "  $color$state$NOCOLOR"
-		dns=`echo "$nstat" | tr '\0' '\n' | grep -Pazo "DNS: \K[0-9\.\s]+" ` # | tr '\n' ' '` # | awk '{$1=$1};1'`
-		ips=`tr -d '\0'  <<< "$nstat" | grep -Pazo "  Address: \K[0-9\.\s]+" | tr '\n' ' ' | awk '{$1=$1};1'`
-		gw=`tr -d '\0'  <<< "$nstat" | grep -Pazo " Gateway: \K[0-9\.\s]+" | tr '\n' ' ' | awk '{$1=$1};1'`
+		dns=`tr -d '\0'  <<< "$nstat" | grep "DNS: " | tr '\n' ' ' | awk '{$1=$1};1'`
+		ips=`tr -d '\0'  <<< "$nstat" | grep "  Address: " | tr '\n' ' ' | awk '{$1=$1};1'`
+		gw=`tr -d '\0'  <<< "$nstat" | grep " Gateway: " | tr '\n' ' ' | awk '{$1=$1};1'`
 		driver=`tr -d '\0'  <<< "$nstat" | grep "Driver:" | awk -F ': ' '{print $2}'`
 		[[ ! -z $ips ]] && echo -en "  ip $WHITE$ips$NOCOLOR"
 		[[ ! -z $gw ]] && echo -en "  gw $WHITE$gw$NOCOLOR"
@@ -217,8 +217,6 @@ sys_check() {
 	[[ $MAINTENANCE -eq 2 ]] && MSG+=("${BYELLOW}Warning: Maintenance mode is enabled (without drivers loading)$NOCOLOR")
 
 	if [[ ! $MAINTENANCE -gt 0 ]]; then
-		local nvidia=$(gpu-detect NVIDIA)
-		local amd=$(gpu-detect AMD)
 		[[ $X_DISABLED -eq 1 && $nvidia -gt 0 ]] && MSG+=("${BYELLOW}Warning: X Server (GUI) is disabled. NVIDIA overclocking will not function properly$NOCOLOR")
 		[[ $X_DISABLED -ne 1 && $nvidia -eq 0 && $amd -gt 0 ]] && MSG+=("${BYELLOW}Warning: X Server (GUI) is enabled. It is only needed for NVIDIA $NOCOLOR")
 	fi
@@ -400,8 +398,6 @@ show_log() {
 		local tab=$i
 		if [[ $i -eq 8 ]]; then
 			title="syslog"
-		elif [[ $i -eq 9 ]]; then
-			title="autofan"
 		elif [[ $i -eq 10 ]]; then
 			title="agent"
 			tab="0"
@@ -437,11 +433,9 @@ show_log() {
 	local padding=-1 # count at the end
 	if [[ $screen == "11" ]]; then
 		output=
-		add_help output "g" "switch gpu stats display mode"
 		add_help output "t" "switch top info display mode"
 		add_help output "1..7" "show selected miner log"
 		add_help output "8" "show syslog"
-		add_help output "9" "show autofan log"
 		add_help output "0" "show agent log"
 		add_help output "shift + 0..9" "show selected log in split mode"
 		add_help output "s" "swap top and bottom logs in split mode"
@@ -454,10 +448,7 @@ show_log() {
 	elif [[ $screen == "8" ]]; then
 		output=`tail -n $needed_lines /var/log/syslog 2>/dev/null | tr -d "\r" | sed 's/.\{'$cols'\}/&\n/g'`
 
-	elif [[ $screen == "9" ]]; then
-		output=`autofan log 2>/dev/null | tail -n $needed_lines | tr -d "\r" | sed 's/.\{'$cols'\}/&\n/g'`
-
-	elif [[ $screen == "10" ]]; then
+		elif [[ $screen == "10" ]]; then
 		output=`agent-screen log 2>/dev/null | tail -n $needed_lines | tr -d "\r" | sed 's/.\{'$cols'\}/&\n/g'`
 
 	else

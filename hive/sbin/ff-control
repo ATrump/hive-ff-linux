@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 
+# fan|flap controll
+# Runs inside screen, starts by cron
+
 #Must be empty in release
 DEBUG_COMMANDS=
+FF_CONTROL_LOG=/var/log/hive-ff-control.log
 VERS="0.1.0"
 
 ################################################################################
@@ -60,8 +64,14 @@ SLEEP_TIME=
 
 ################################################################################
 
+echo2 () {
+  #echo -e "$1" > /dev/tty1
+  echo -e "$1" >> $FF_CONTROL_LOG
+  echo -e "$1"
+}
+
 load_def_values () {
-  echo "Loading settings from $FF_CONF"
+  # echo2 "Loading settings from $FF_CONF"
   [[ -f $FF_CONF ]] && source $FF_CONF
 
   [[ -z $FAN_1_IN_PORT ]] && FAN_1_IN_PORT=$DEF_FAN_1_IN_PORT
@@ -98,12 +108,12 @@ set_analog_out_v () {
 }
 
 set_fans_speed () {
-  echo "Setting speed to $(($1*12000/100))"
+  echo2 "Setting speed to $(($1*12000/100))"
   #set_analog_out_v $FANS_SPEED_OUT_UID $(($1*12000/100))
 }
 
 set_flaps_position () {
-  echo "setting position to $(($1*12000/100))"
+  echo2 "setting position to $(($1*12000/100))"
   #set_analog_out_v $FLAPS_OUT_UID $(($1*12000/100))
 }
 
@@ -112,72 +122,74 @@ get_avr_temp () {
   [[ $rigs_count -eq 0 ]] && return 1
   local rigs_used=$(($rigs_count / 5))
   [[ $rigs_used -eq 0 ]] && rigs_used=1
-  sort $FF_SNMP_OUTPUT -k2 | tail -n $rigs_used | awk '{s+=$2} END {print s/'$rigs_used'}'
+  sort $FF_SNMP_OUTPUT -k2 | tail -n $rigs_used | awk '{s+=$2} END {printf "%.0f", s/'$rigs_used'}'
   return 0
 }
 
 ff_control () {
-  local target_speed=0; local echo_temp=; local echo_fan=
+  local tar_speed=0; local echo2_temp=; local echo2_fan=
   local cur_speed=0;
 
   while true; do
+    /hive/sbin/ff-snmp start > /dev/null
+
     . $FF_CONF
 
     local cur_temp=`get_avr_temp`
-    if [[ $? -ne 0  ]]; then target_speed=50 #no stats from rigs, set speed to 50%
+    if [[ $? -ne 0  ]]; then tar_speed=50 #no stats from rigs, set speed to 50%
     else
       if [[ ! -z $prev_temp ]]; then
         if [[ $(($cur_temp - $TARGET_TEMP)) -gt $DEF_TEMP_VARIATION ]]; then
           if [[ $cur_temp -gt $prev_temp ]]; then
-            ((target_speed=$cur_speed + ($cur_temp - $TARGET_TEMP - 1)))
-            echo "Speed $cur_speed -> $target_speed "
+            ((tar_speed=$cur_speed + ($cur_temp - $TARGET_TEMP - 1)))
+            echo2 "Speed $cur_speed -> $tar_speed "
           elif [[ $cur_temp -lt $prev_temp ]]; then
-            ((target_speed=$cur_speed - 1))
+            ((tar_speed=$cur_speed - 1))
           else
-            target_speed=$(($cur_speed + 1))
+            tar_speed=$(($cur_speed + 1))
           fi
         else
           if [[ $(($TARGET_TEMP - $cur_temp)) -gt 3 ]]; then
-            ((target_speed=$cur_speed + ($cur_temp - $TARGET_TEMP)))
-          elif [[ $a_temp -gt $prev_temp ]]; then
-            ((target_speed=$cur_speed + ($cur_temp - $prev_temp - 1)))
-          elif [[ $a_temp -lt $prev_temp ]]; then
-            ((target_speed=$cur_speed - 1))
+            ((tar_speed=$cur_speed + ($cur_temp - $TARGET_TEMP)))
+          elif [[ $cur_temp -gt $prev_temp ]]; then
+            ((tar_speed=$cur_speed + ($cur_temp - $prev_temp - 1)))
+          elif [[ $cur_temp -lt $prev_temp ]]; then
+            ((tar_speed=$cur_speed - 1))
           else
-            target_speed=$cur_speed
+            tar_speed=$cur_speed
           fi
         fi
       fi
     fi
 
-    [[ $target_speed -gt $MAX_SPEED ]] && target_speed=$MAX_SPEED
-    [[ $target_speed -lt $MIN_SPEED ]] && target_speed=$MIN_SPEED
+    [[ $tar_speed -gt $MAX_SPEED ]] && tar_speed=$MAX_SPEED
+    [[ $tar_speed -lt $MIN_SPEED ]] && tar_speed=$MIN_SPEED
 
-    echo_temp="$cur_temp°C"
-    [[ $cur_temp -gt $TARGET_TEMP ]] &&
-      echo_temp="${YELLOW}$cur_temp°C${NOCOLOR}"
+    echo2_temp="$cur_temp°C"
     [[ $cur_temp -lt $TARGET_TEMP ]] &&
-      echo_temp="${GREEN}$cur_temp°C${NOCOLOR}"
+      echo2_temp="${GREEN}$cur_temp°C${NOCOLOR}"
+    [[ $(($cur_temp - $TARGET_TEMP)) -gt $DEF_TEMP_VARIATION ]] &&
+      echo2_temp="${YELLOW}$cur_temp°C${NOCOLOR}"
     [[ $(($cur_temp - $TARGET_TEMP)) -ge 5 ]] &&
-      echo_temp="${RED}$cur_temp°C${NOCOLOR}"
+      echo2_temp="${RED}$cur_temp°C${NOCOLOR}"
 
-    echo_fan="$target_speed%"
-  	[[ $target_speed -gt $cur_speed ]] &&
-  		echo_fan="${YELLOW}$target_speed% ↑${NOCOLOR}"
-  	[[ $target_speed -lt $cur_speed ]] &&
-  		echo_fan="${GREEN}$target_speed% ↓${NOCOLOR}"
-  	[[ $target_speed -eq $MAX_SPEED ]] &&
-  		echo_fan="${RED}$target_speed%${NOCOLOR}"
+    echo2_fan="$tar_speed%"
+  	[[ $tar_speed -lt $cur_speed ]] &&
+  		echo2_fan="${GREEN}$tar_speed% ↓${NOCOLOR}"
+    [[ $tar_speed -gt $cur_speed ]] &&
+  		echo2_fan="${YELLOW}$tar_speed% ↑${NOCOLOR}"
+  	[[ $tar_speed -eq $MAX_SPEED ]] &&
+  		echo2_fan="${RED}$tar_speed%${NOCOLOR}"
 
-    echo -e "$echo_temp $cur_speed $echo_fan ($TARGET_TEMP°C)"
+    echo2 "$echo2_temp $cur_speed $echo2_fan ($TARGET_TEMP°C)"
 
-    set_fans_speed $target_speed
-    set_flaps_position $(( 100 - $target_speed ))
+    set_fans_speed $tar_speed
+    set_flaps_position $(( 100 - $tar_speed ))
 
-    cur_speed=$target_speed
+    cur_speed=$tar_speed
     prev_temp=$cur_temp
 
-    echo "Sleeping $SLEEP_TIME seconds"
+    echo2 "Sleeping $SLEEP_TIME seconds"
     sleep $SLEEP_TIME
   done
 }
@@ -185,51 +197,58 @@ ff_control () {
 function stop() {
 	screens=`screen -ls ff-control | grep -E "[0-9]+\.ff-control" | cut -d. -f1 | awk '{print $1}'`
 	if [[ -z $screens ]]; then
-		echo "No ff-control screens found"
+		echo2 "No ff-control screens found"
 		return 1
 	fi
 	for pid in $screens; do
-		echo "Stopping ff-control screen session $pid"
+		echo2 "Stopping ff-control screen session $pid"
 		screen -S $pid.ff-control -X quit
 	done
 	return 0
 }
 
+function get_fan_json() {
+  echo "{\"fanflap_stats\":{\"fan\":[40,41,42,0,null,40]}}"
+}
+
 print_help () {
-  echo -e "${CYAN}Hive Fans & Flaps Controller v$VERS"
-  echo -e "${WHITE}This tool is used to control ROH fans and flaps."
-  echo
-  echo -e "${YELLOW}Usage:"
-  echo -e "\t${CYAN}ff-control parameter [value]"
-  echo
-  echo -e "${YELLOW}Examples of usage:${NOCOLOR}"
-  echo -e "\t${CYAN}ff-control                                     ${LGRAY}- show ff-control main loop ${NOCOLOR}"
-  echo -e "\t${CYAN}ff-control start                               ${LGRAY}- start ff-control main loop ${NOCOLOR}"
-  echo -e "\t${CYAN}ff-control --get_fans_speed | -gfs             ${LGRAY}- print current fans speed ${NOCOLOR}"
-  echo -e "\t${CYAN}ff-control --set_fans_speed | -sfs value       ${LGRAY}- set fans speed to value in percent ${NOCOLOR}"
-  echo -e "\t${CYAN}ff-control --set_flaps_position | -sfp value   ${LGRAY}- set flaps position to value in percent ${NOCOLOR}"
-  echo -e "\t${CYAN}ff-control --help | -h         ${LGRAY}- print this help ${NOCOLOR}"
+  echo2 "${CYAN}Hive Fans & Flaps Controller v$VERS"
+  echo2 "${WHITE}This tool is used to control ROH fans and flaps."
+  echo2
+  echo2 "${YELLOW}Usage:"
+  echo2 "\t${CYAN}ff-control parameter [value]"
+  echo2
+  echo2 "${YELLOW}Examples of usage:${NOCOLOR}"
+  echo2 "\t${CYAN}ff-control                                     ${LGRAY}- show ff-control main loop ${NOCOLOR}"
+  echo2 "\t${CYAN}ff-control start                               ${LGRAY}- start ff-control main loop ${NOCOLOR}"
+  echo2 "\t${CYAN}ff-control --get_fans_speed | -gfs             ${LGRAY}- print current fans speed ${NOCOLOR}"
+  echo2 "\t${CYAN}ff-control --set_fans_speed | -sfs value       ${LGRAY}- set fans speed to value in percent ${NOCOLOR}"
+  echo2 "\t${CYAN}ff-control --set_flaps_position | -sfp value   ${LGRAY}- set flaps position to value in percent ${NOCOLOR}"
+  echo2 "\t${CYAN}ff-control --help | -h         ${LGRAY}- print this help ${NOCOLOR}"
 }
 
 load_def_values
 get_uids
 
 case $1 in
-  "--help","-h" )
+  "get_fan_json" )
+    get_fan_json
+    ;;
+  "--help" )
     print_help
     ;;
-  "set_fans_speed","-sfs" )
+  "set_fans_speed" )
     set_fans_speed $2
     ;;
   "start" )
     session_count=`screen -ls ff-control | grep ff-control | wc -l`
     if [[ $session_count -gt 0 ]]; then
-      echo "ff-control already started"
+      echo2 "ff-control already started"
     else #start new screen
-      echo "> Starting ff-control"
+      echo2 "> Starting ff-control"
 
       screen -dm -S ff-control $0 run
-      echo "ff-control screen started"
+      echo2 "ff-control screen started"
     fi
     ;;
   "" )
@@ -237,7 +256,7 @@ case $1 in
     if [[ $session_count -gt 0 ]]; then
       screen -x -S ff-control
     else
-      echo -e "No ff-screen found. Use ${CYAN}ff-control start${NOCOLOR} to start new one."
+      echo2 "No ff-screen found. Use ${CYAN}ff-control start${NOCOLOR} to start new one."
     fi
     ;;
   "run" )

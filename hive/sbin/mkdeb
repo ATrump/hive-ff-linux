@@ -8,7 +8,7 @@ date
 echo -e $GREEN`pwd`$NOCOLOR
 
 #buildroot=/tmp/hivebuild
-buildroot=../hivecc-linux-packages
+buildroot=../hive-ff-linux-packages
 if [[ ! -d $buildroot ]]; then
 	mkdir -p $buildroot
 	[[ $? -ne 0 ]] && echo "Error creating $buildroot" && exit 1

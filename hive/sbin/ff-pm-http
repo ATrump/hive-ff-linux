@@ -1,14 +1,28 @@
 #!/usr/bin/env bash
 # Gets power meter statistics over http
-# Runs inside screen, starts by ff-control
+# Runs inside screen, starts by cron
 
 TEMP_OUTPUT="/tmp/ff-pm.html"
+FF_PM_LOG=/var/log/hive-ff-pm-http.log
 INTERVAL=10 #seconds
+API_TIMEOUT=15 #seconds
 
 if [[ -z $FF_PM_OUTPUT ]]; then #reread env variables as after upgrade this can be empty
   source /etc/environment
   export $(cat /etc/environment | grep -vE '^$|^#' | cut -d= -f1) #export all variables from file
 fi
+
+echo2 () {
+  #echo -e "$1" > /dev/tty1
+  echo -e "$1" >> $FF_PM_LOG
+  echo -e "$1"
+}
+
+check_html2text () {
+  if [[ `dpkg -s html2text 2>/dev/null | grep -c "ok installed"` -eq 0 ]]; then
+    apt-get install -y html2text
+  fi
+}
 
 ff-pm-control () {
   local pm_url=; local pm_user=; local pm_pass=;
@@ -18,41 +32,44 @@ ff-pm-control () {
 
     time_start=`date +%s`
 
-    . $FF_CONF
-    #PM1_URL=; PM1_USER=; PM1_PASS=; #PM2_URL=; PM2_USER=; PM2_PASS=;
+    . $PM_CONF
+
     local p1=; local p2=; local p3=; local p_total=; local e_total=;
-    local ff_stats=; local t_stats=;
+    local ff_stats="{}"; local t_stats=;
 
     for i in {1..2}; do
+
       eval "pm_url=\$PM${i}_URL"
       eval "pm_user=\$PM${i}_USER"
       eval "pm_pass=\$PM${i}_PASS"
 
-      stats_raw=`curl --user $pm_user:$pm_pass -L $pm_url | html2text`
-      p1=`echo stats_raw | grep 'P1 ' | grep 'kW' | awk '{print $9}'`
+      [[ -z $pm_url ]] && echo2 "PM${i}_URL is empty." && continue
+      [[ -z $pm_user ]] && echo2 "PM${i}_USER is empty." && continue
+      [[ -z $pm_pass ]] && echo2 "PM${i}_PASS is empty." && continue
+
+      curl --connect-timeout 2 --max-time $API_TIMEOUT --user $pm_user:$pm_pass -L $pm_url | html2text > $TEMP_OUTPUT
+      p1=`cat $TEMP_OUTPUT | grep 'P1 ' | grep 'kW' | awk '{print $9}'`
       [[ -z $p1 ]] && p1=null
-      p2=`echo stats_raw | grep 'P1 ' | grep 'kW' | awk '{print $9}'`
+      p2=`cat $TEMP_OUTPUT | grep 'P1 ' | grep 'kW' | awk '{print $9}'`
       [[ -z $p2 ]] && p2=null
-      p3=`echo stats_raw | grep 'P1 ' | grep 'kW' | awk '{print $9}'`
+      p3=`cat $TEMP_OUTPUT | grep 'P1 ' | grep 'kW' | awk '{print $9}'`
       [[ -z $p3 ]] && p3=null
-      p_total=`echo stats_raw | grep 'P total ' | grep 'kW' | awk '{print $10}'`
+      p_total=`cat $TEMP_OUTPUT | grep 'P total ' | grep 'kW' | awk '{print $10}'`
       [[ -z $p_total ]] && p_total=null
-      stats_raw=`curl --user $pm_user:$pm_pass -L $pm_url/energy.shtml | html2text`
-      e_total=`echo stats_raw | grep 'Total' | grep 'kWh' | awk '{print $4}'
+      curl --connect-timeout 2 --max-time $API_TIMEOUT --user $pm_user:$pm_pass -L $pm_url/energy.shtml | html2text > $TEMP_OUTPUT
+      e_total=`cat $TEMP_OUTPUT | grep 'Total' | grep 'kWh' | awk '{print $4}'`
       [[ -z $e_total ]] && e_total=null
 
       t_stats='{"p'$i'":['$p1', '$p2', '$p3'], "p'$i'_total":'$p_total', "e'$i'_total":'$e_total'}'
-
-      ff_stats=$(jq -s '.[0] * .[1]' <<< "$stats $t_stats")
+      ff_stats=$(jq -s '.[0] * .[1]' <<< "$ff_stats $t_stats")
     done
 
-    #copy temporary output to output
-    [[ -s $TEMP_OUTPUT ]] && cp $TEMP_OUTPUT $FF_SNMP_OUTPUT
+    [[ ! -z $ff_stats ]] && echo $ff_stats | jq -c '.' > $FF_PM_OUTPUT
 
     time_finish=`date +%s`
     wasted=$(( $time_finish - $time_start ))
 
-    echo "$wasted seconds snmp reading"
+    echo "$wasted seconds PM reading over http"
     echo ""
 
     tosleep=$(( $INTERVAL - $wasted ))
@@ -65,27 +82,45 @@ ff-pm-control () {
 done
 }
 
+function stop() {
+	screens=`screen -ls ff-pm-http | grep -E "[0-9]+\.ff-pm-http" | cut -d. -f1 | awk '{print $1}'`
+	if [[ -z $screens ]]; then
+		echo2 "No ff-pm-http screens found"
+		return 1
+	fi
+	for pid in $screens; do
+		echo2 "Stopping ff-pm-http screen session $pid"
+		screen -S $pid.ff-pm-http -X quit
+	done
+	return 0
+}
+
+
 case $1 in
   "start" )
-  	session_count=`screen -ls ff-snmp | grep ff-snmp | wc -l`
+  	session_count=`screen -ls ff-pm-http | grep ff-pm-http | wc -l`
   	if [[ $session_count -eq 0 ]]; then
-  		echo "> Starting ff-snmp"
+  		echo2 "> Starting ff-pm-http"
   		#start new screen
-  		screen -dm -S ff-snmp $0 run
-  		echo "ff-snmp screen started"
+  		screen -dm -S ff-pm-http $0 run
+  		echo2 "ff-pm-http screen started"
     else
-      echo "ff-snmp screen already started"
+      echo "ff-pm-http screen already started"
   	fi
     ;;
   "" )
-  	session_count=`screen -ls ff-snmp | grep ff-snmp | wc -l`
+  	session_count=`screen -ls ff-pm-http | grep ff-pm-http | wc -l`
   	if [[ $session_count -gt 0 ]]; then
-  		screen -x -S ff-snmp
+  		screen -x -S ff-pm-http
   	else #start new screen
-  		echo "No ff-snmp screen found. Use \"start\" param to start new one."
+  		echo2 "No ff-pm-http screen found. Use \"start\" param to start new one."
   	fi
     ;;
   "run" )
-    ff-snmp-control
+    check_html2text
+    ff-pm-control
     ;;
+  "stop" )
+    stop
+  ;;
 esac

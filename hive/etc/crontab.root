@@ -26,8 +26,16 @@ PATH="./:/hive/bin:/hive/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:
 
 
 #check agent is running...
-*/10 * * * * agent-screen dontattach || echo "[`date`] STARTED BY CRON" >> /var/log/hive-agent.log
+*/10 * * * * /hive/bin/agent-screen dontattach || echo "[`date`] STARTED BY CRON" >> /var/log/hive-agent.log
 
+#check ff-control is running...
+*/1 * * * * /hive/sbin/ff-control start
+
+#check ff-pm-http is running...
+*/1 * * * * /hive/sbin/ff-pm-http start
+
+#check ff-snmp is running...
+*/1 * * * * /hive/sbin/ff-snmp start
 
 # systemd-timesyncd check
 0 * * * * /hive/sbin/timesync

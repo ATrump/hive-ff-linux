@@ -38,9 +38,6 @@ function restart_agent() {
 		[[ $i == 25 ]] && echo -e "${RED}screen agent not found in 25 iterations, check logs and maybe flash drive speed${NOCOLOR}"
 	done
 
-	screen -S agent -X screen 2 agent.gpu-stats &&
-		screen -S agent -X title "gpu-stats" #set nice title
-	sleep 0.2
 	screen -S agent -X screen 1 agent &&
 		screen -S agent -X title "agent" #set nice title
 	sleep 0.2
@@ -91,7 +88,7 @@ case $1 in
 		tail -n 20 /var/log/hive-agent.log
 		exit
 	;;
-	
+
 	log1)
 		log_agent 1
 		exit

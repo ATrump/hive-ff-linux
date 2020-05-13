@@ -7,10 +7,8 @@ PATH="./:/hive/bin:/hive/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:
 # Hive vars
 RIG_CONF=/hive-config/rig.conf
 
-OCTOFAN_CONF=/hive-config/octofan.conf
-OCTOFAN=/hive/opt/octofan/octofan
-
-FF_CONF=/hive-config/ff.conf
+PM_CONF=/hive-config/powermeter.conf
+FF_CONF=/hive-config/fanflap.conf
 FF_SNMP_OUTPUT="/run/hive/ff-snmp.list"
 FF_PM_OUTPUT="/run/hive/ff-pm.json"
 

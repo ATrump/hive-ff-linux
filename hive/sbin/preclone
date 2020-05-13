@@ -2,9 +2,7 @@
 #Cleans system before cloning
 
 function stop-everything() {
-	miner stop
 	wd stop
-	autofan stop
 	agent-screen stop
 	systemctl stop hivex
 }
@@ -90,4 +88,3 @@ zerofill /hive-config
 echo "> Filling /"
 zerofill /
 echo "Done"
-

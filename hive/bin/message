@@ -30,10 +30,6 @@ MSGCOLOR=$CYAN
 [[ $type == "warn" ]] && type="warning" && MSGCOLOR=$YELLOW
 [[ $type == "ok" ]] && type="success" && MSGCOLOR=$GREEN
 
-
-#sending blink command to octofan in case of errors
-[[ `lsusb | grep -c 16c0:05dc` -ge 1 && $type == "danger" && -e $OCTOFAN ]] && $OCTOFAN blink_error
-
 request=$(
 echo "$payload_json" | jq -n \
 --arg rig_id "$RIG_ID" \

@@ -20,8 +20,7 @@ for var in "$@"; do
     [[ $var == "retry" ]] && arg_retry=1 && continue
     [[ $var == "check" ]] && arg_check=1 && continue
 done
-echo 1
-echo $RIG_CONF
+
 if [[ -z $RIG_CONF ]]; then #reread env variables as after upgrade this can be empty
 echo 2
 	source /etc/environment
@@ -152,27 +151,12 @@ jq -n \
     $boot_time, $boot_event, $ip, $net_interfaces, $openvpn, $lan_config,
     "mb": {$manufacturer, $product, $system_uuid}, "cpu": {$model, $cores, $aes, $cpu_id}, $disk_model,
     $kernel,
-    $version
+    $version,
+    "fanflap": {"enabled": true},
+    "powermeter": {"enabled": true}
   }
 }'
 )
-
-#ROH case fan
-if [[ `lsusb | grep -c 16c0:05dc` -ge 1 ]]; then
-  octofan=`$OCTOFAN get_max_rpm_json`
-  if [[ ! -z $octofan && $octofan != '[]' ]]; then
-    octofan_json=$(
-      jq -n \
-      --argjson octofan "$octofan" \
-        '{
-          "params": {
-            $octofan
-          }
-         }')
-    [[ ! -z $octofan_json ]] &&
-      request=`echo "$request" "$octofan_json" | jq -s '.[0] * .[1]'`
-  fi
-fi
 
 [[ ! -z $FARM_HASH ]] &&
   request=`echo "$request" | jq --arg farm_hash "$FARM_HASH" '. * {"params": {$farm_hash}}'`
@@ -240,23 +224,31 @@ hostname-check
 [[ ! -z $SYSTEM_LANG ]] &&
   locale-setup "$SYSTEM_LANG"
 
-# Octofan config ================================================================
-octofan=$(echo $response | jq '.result.octofan' --raw-output)
-if [[ ! -z $octofan && $octofan != "null" ]]; then
-  if [[ -z $OCTOFAN_CONF ]]; then #reread env variables as after upgrade this can be empty
+# Powermeter config ================================================================
+powermeter=$(echo $response | jq '.result.powermeter' --raw-output)
+if [[ ! -z $powermeter && $powermeter != "null" ]]; then
+  if [[ -z $PM_CONF ]]; then #reread env variables as after upgrade this can be empty
     source /etc/environment
     export $(cat /etc/environment | grep -vE '^$|^#' | cut -d= -f1) #export all variables from file
   fi
-  echo "Saving Octofan config"
-  echo "$octofan" > $OCTOFAN_CONF
-
-  $OCTOFAN save_text_to_EEPROM
+  echo "Saving Powermeter config"
+  echo "$powermeter" > $PM_CONF
 fi
 
+# Fanflap config ================================================================
+fanflap=$(echo $response | jq '.result.fanflap' --raw-output)
+if [[ ! -z $fanflap && $fanflap != "null" ]]; then
+  if [[ -z $FF_CONF ]]; then #reread env variables as after upgrade this can be empty
+    source /etc/environment
+    export $(cat /etc/environment | grep -vE '^$|^#' | cut -d= -f1) #export all variables from file
+  fi
+  echo "Saving Fanflap config"
+  echo "$fanflap" > $FF_CONF
+fi
 # Repositpry URLs ==============================================================
 HIVEREPO_LIST=/etc/apt/sources.list.d/hiverepo.list
-repository_list=$(echo $response | jq '.result.repository_list' --raw-output)
-[[ -z $repository_list || $repository_list == "null" ]] &&
+#repository_list=$(echo $response | jq '.result.repository_list' --raw-output)
+#[[ -z $repository_list || $repository_list == "null" ]] &&
   repository_list=$(cat /hive/etc/hiverepo.list)
 #remove old symlink
 [[ -L $HIVEREPO_LIST ]] && rm $HIVEREPO_LIST

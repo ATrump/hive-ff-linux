@@ -1,99 +1,105 @@
 #!/usr/bin/env bash
-# Gets rig intake temperature over SNMP
-# Runs inside screen, starts by ff-control
+# Gets rig intake temp over SMNP and stores it to file
+# Runs inside screen with agent
 
+FF_SMNP_LOG="/var/log/hive-ff-smnp.log"
 TEMP_OUTPUT="/tmp/ff-snmp.list"
 INTERVAL=10 #seconds
 MAX_IP_LIST_AGE=60 #seconds
 
 if [[ -z $FF_SNMP_OUTPUT ]]; then #reread env variables as after upgrade this can be empty
-  source /etc/environment
-  export $(cat /etc/environment | grep -vE '^$|^#' | cut -d= -f1) #export all variables from file
+	source /etc/environment
+	export $(cat /etc/environment | grep -vE '^$|^#' | cut -d= -f1) #export all variables from file
 fi
 
+echo2 () {
+	echo "$1" >> $FF_SMNP_LOG
+	echo "$1"
+}
+
 ff-snmp-control () {
-  #get default interface
-  default_if=$(ip route list | awk '/^default/ {print $5}')
-  echo "Default network interface=$default_if"
-  #get default network
-  default_net=`ip -o -f inet addr show $default_if | awk '{print $4}'`
-  echo "Default network=$default_net"
-  #get default ip-address
-  default_ip=`echo $default_net | cut -d '/' -f 1`
-  echo "Default ip-address=$default_ip"
-  #get rigs ip-addresses
-  rigs_ip_list=`nmap -sP $default_net | grep -B 2 "is up" | grep "Nmap" | grep -v "Starting" | grep -v "gateway" | grep -v \`hostname -I\` | awk '{print $5}'`
-  rig_ip_list_time=`date +%s`
-  echo "Rigs IP-addresses="$rigs_ip_list
+	#get default interface
+	default_if=$(ip route list | awk '/^default/ {print $5}')
+	echo2 "Default network interface=$default_if"
+	#get default network
+	default_net=`ip -o -f inet addr show $default_if | awk '{print $4}'`
+	echo2 "Default network=$default_net"
+	#get default ip-address
+	default_ip=`echo $default_net | cut -d '/' -f 1`
+	echo2 "Default ip-address=$default_ip"
+	#get rigs ip-addresses
+	rigs_ip_list=`nmap -sP $default_net | grep -B 2 "is up" | grep "Nmap" | grep -v "Starting" | grep -v "gateway" | grep -v \`hostname -I\` | awk '{print $5}'`
+	rig_ip_list_time=`date +%s`
+	echo2 "Rigs IP-addresses="$rigs_ip_list
 
-  while true; do
-    date
+	while true; do
+		date
 
-    time_start=`date +%s`
+		time_start=`date +%s`
 
-    #get rigs ip-addresses
-    current_time=`date +%s`
-    rig_ip_list_age=$(( $current_time - $rig_ip_list_time ))
-    if [[ $rig_ip_list_age -ge $MAX_IP_LIST_AGE ]]; then
-      #update rigs ip-addresses
-      echo "Updating rigs IP-addresses"
-      rigs_ip_list=`nmap -sP $default_net | grep -B 2 "is up" | grep "Nmap" | grep -v "Starting" | grep -v "gateway" | grep -v \`hostname -I\` | awk '{print $5}'`
-      rig_ip_list_time=`date +%s`
-      echo "Rigs IP-addresses="$rigs_ip_list
-    fi
+	  #get rigs ip-addresses
+	  current_time=`date +%s`
+	  rig_ip_list_age=$(( $current_time - $rig_ip_list_time ))
+	  if [[ $rig_ip_list_age -ge $MAX_IP_LIST_AGE ]]; then
+	    #update rigs ip-addresses
+	    echo2 "Updating rigs IP-addresses"
+	    rigs_ip_list=`nmap -sP $default_net | grep -B 2 "is up" | grep "Nmap" | grep -v "Starting" | grep -v "gateway" | grep -v \`hostname -I\` | awk '{print $5}'`
+			rig_ip_list_time=`date +%s`
+	    echo "Rigs IP-addresses="$rigs_ip_list
+	  fi
 
-    #clear temporary output
-    [[ -f $TEMP_OUTPUT ]] && rm $TEMP_OUTPUT
-    #fill temporary output
-    for t_ip in $rigs_ip_list; do
-      echo "Sending request to $t_ip"
-      t_response=`snmpwalk -r 1 -v 2c -c public $t_ip .1.3.6.1.4.1.2021.8 | grep ".4.1.2.2.100.102.1 = STRING: " | awk '{print $4}' | tr -d '"'`
-      [[ ! -z $t_response ]] && echo "t=${t_response}°C"
-      #if [[ ! -z $t_response ]]; then
-      echo "$t_ip $t_response" >> $TEMP_OUTPUT
-      #fi
-    done
+	  #clear temporary output
+	  [[ -f $TEMP_OUTPUT ]] && rm $TEMP_OUTPUT
+	  #fill temporary output
+	  for t_ip in $rigs_ip_list; do
+	    echo2 "Sending request to $t_ip"
+	    t_response=`snmpwalk -r 1 -v 2c -c public $t_ip .1.3.6.1.4.1.2021.8 | grep ".4.1.2.2.100.102.1 = STRING: " | awk '{print $4}' | tr -d '"'`
+	    [[ ! -z $t_response ]] && echo "t=${t_response}°C"
+	    #if [[ ! -z $t_response ]]; then
+	    echo2 "$t_ip $t_response" >> $TEMP_OUTPUT
+	    #fi
+	  done
+	cat $TEMP_OUTPUT
+	  #copy temporary output to output
+	  [[ -s $TEMP_OUTPUT ]] && cp $TEMP_OUTPUT $FF_SNMP_OUTPUT
 
-    #copy temporary output to output
-    [[ -s $TEMP_OUTPUT ]] && cp $TEMP_OUTPUT $FF_SNMP_OUTPUT
+		time_finish=`date +%s`
+		wasted=$(( $time_finish - $time_start ))
 
-    time_finish=`date +%s`
-    wasted=$(( $time_finish - $time_start ))
+		echo "$wasted seconds snmp reading"
+		echo ""
 
-    echo "$wasted seconds snmp reading"
-    echo ""
+		tosleep=$(( $INTERVAL - $wasted ))
 
-    tosleep=$(( $INTERVAL - $wasted ))
-
-    #echo "Sleeping $tosleep"
-    if [[ $tosleep -ge 0 ]]; then
-      #sleep $INTERVAL
-      read -t $tosleep
-    fi
-done
+		#echo "Sleeping $tosleep"
+		if [[ $tosleep -ge 0 ]]; then
+			#sleep $INTERVAL
+			read -t $tosleep
+		fi
+	done
 }
 
 case $1 in
-  "start" )
-  	session_count=`screen -ls ff-snmp | grep ff-snmp | wc -l`
-  	if [[ $session_count -eq 0 ]]; then
-  		echo "> Starting ff-snmp"
-  		#start new screen
-  		screen -dm -S ff-snmp $0 run
-  		echo "ff-snmp screen started"
-    else
-      echo "ff-snmp screen already started"
-  	fi
-    ;;
-  "" )
-  	session_count=`screen -ls ff-snmp | grep ff-snmp | wc -l`
-  	if [[ $session_count -gt 0 ]]; then
-  		screen -x -S ff-snmp
-  	else #start new screen
-  		echo "No ff-snmp screen found. Use \"start\" param to start new one."
-  	fi
-    ;;
-  "run" )
-    ff-snmp-control
-    ;;
+	"start" )
+		session_count=`screen -ls ff-snmp | grep ff-snmp | wc -l`
+		if [[ $session_count -eq 0 ]]; then
+			echo2 "> Starting ff-snmp"
+			#start new screen
+			screen -dm -S ff-snmp $0 run
+			echo2 "ff-snmp screen started"
+		else
+	echo "ff-snmp screen already started"
+		fi
+	;;
+	"" )
+		session_count=`screen -ls ff-snmp | grep ff-snmp | wc -l`
+		if [[ $session_count -gt 0 ]]; then
+			screen -x -S ff-snmp
+		else #start new screen
+			echo "No ff-snmp screen found. Use \"start\" param to start new one."
+		fi
+	;;
+	"run" )
+		ff-snmp-control
+	;;
 esac

@@ -38,22 +38,21 @@ if [[ $? -ne 0 && ! -e /hive-config/rig.conf && $DISKLESS != 1 ]]; then
 	exit 1
 fi
 
+
+
 if [[ -e /hive-config/branding-logo.txt ]]; then
 	BRANDING_LOGO=$(cat /hive-config/branding-logo.txt; echo .) #echo . to preserve new lines
 	BRANDING_LOGO=${BRANDING_LOGO%.} #remove last .
-elif [[ -e /hive/etc/branding-logo.txt ]]; then
-  BRANDING_LOGO=$(cat /hive/etc/branding-logo.txt; echo .) #echo . to preserve new lines
-  BRANDING_LOGO=${BRANDING_LOGO%.} #remove last .
 else
-	BRANDING_LOGO="${BYELLOW}
- _______ _______ ___ ___ _______   ________ ________
-|   |   |_     _|   |   |    ___| |   ____/|   ____/
-|       |_|   |_|   |   |    ___| |   |__/ |   |__/
-|___|___|_______|\_____/|_______| |___|    |___|
+	BRANDING_LOGO="
+ _______ _______ ___ ___ _______   _______ _______
+|   |   |_     _|   |   |    ___| |   ____|   ____|
+|       |_|   |_|   |   |    ___| |    __||    __|
+|___|___|_______|\_____/|_______| |___|   |___|
 
 "
 fi
-BRANDING_LOGO="${BRANDING_LOGO}${NOCOLOR}"
+BRANDING_LOGO="${BYELLOW}${BRANDING_LOGO}${NOCOLOR}"
 
 #Check for proxy var. Or agent and others started from here will not see it
 . http_proxy.sh
@@ -153,10 +152,10 @@ agent-screen start
 if [[ $MAINTENANCE == 1 || $MAINTENANCE == 2 ]]; then
   echo2 "> Maintenance mode. Autofan is disabled"
 else
-  echo2 "> Starting Hive FF autocontrol"
-#TO-DO: Hive FF autocontrol starts here
+  echo2 "> Starting ROH-RPi Autofan"
+#ROH-RPi Autofan starts here
 fi
 
-echo2 "> Hive FF Start Finished"
+echo2 "> ROH-RPi Start Finished"
 
 exit 0
